@@ -1,0 +1,60 @@
+                                        OSWAL ENERGIES LIMITED.                                FORMAT NO    OIL/PUR/06
+                                                                                                REVNO       02
+                                  FORMERLY KNOW AS OSWAL INFRASTRUCTURE LTD. Block No,
+            OSWAL                                                                               REVDATE     6/16/2016
+                                      258 , Ahmedabad-Mehsana,Village-Ola, Taluka - Kalol
+            ENERGIES LIMITED                                                                    EXHIBIT NO  9-2
+                                                 Dist.Gandhinagar Pin-382721
+                                   Phone-02764-664900 Fax-- Email-purchase@oswalenergies.com   REV NO       2
+                                                                                               REV DATE    12-05-2014
+                                                website-www.oswalenergies.com
+                                                  PURCHASE ORDER
+ Category Of PO:                                        A        B
+EBY FASTENERS                                 Vendor Codev0840Purchase Order No       2627PUR083-00064
+                                                                Purchase Order Date   04-May-2026
+  C-19/4,Midc Taloja Panwel,Dist-Raigad Navi Mumbai 410208
+   State-Maharashtra Pin 410208                                 Vendor Quotation No
+  Phone-9870970097 Fax-                                         Project Code          2526NOA083-00022
+  Email -Sales@Ebyfasteners.Com                                 Req./Quo. No.        PR
+  Contact Name -Pinank Doshi                                    GST No                24AACCO1639E1ZT
+  GSTTIN No-27AAAFE0658C1ZW                                     PAN NO                AACCO1639E
+  PAN NO-
+ Kind Attn: Mr.PINANK DOSHI
+Supply shall be strictly as per the techno-commercial and general terms & conditions of the purchase order.
+Sr     Item Code/Sub       HSN   UOM   Qty     Rate    Amount    Dis.   Taxable     CGST      SGST              IGST
+No    Group/Item Desc.     Code                                  Amt    Value    %    Amt     %     Amt    %
+                                                                                                                  Amt
+ 1RPFIEN6XXXS11736        730791 NOS     8.00
+   FITTING
+   END CAP 6SCH 40S
+   /-SA403 GR
+   316/316L AS PER
+   TDC
+ Required:-
+            DP TESTING,IGC TEST,AS PER ATTACHED TDC
+ 2RPFIEL2XXXS11737       730791  NOS     2.00
+   FITTING
+   ELBOW 902SCH
+   40S SA403 GR.316
+   AS PER TDC
+Required:-
+Requisition No.  2627PRQ083-00037,2627PRQ083-00038
+ Terms & Conditions :                                Assessable Amt
+ Packing & Forwarding  : Inclusive                   Freight Charges      0%       0.00    0.00       0.00
+ Freight               :Extra                        P&F Charges          0%       0.00     0.00     0.00
+ Payment               : 15 Days Pdc Before
+                                                     Insurance            0%       0.00    0.00      0.00
+                        Dispatch Of Material.
+                       By Road Transport             Inspection Charges  0 %       0.00     0.00     0.00
+ Mode Of Despatch
+ Delivery Date         8-Jun-2026                    Other Charges
+                                                     Round off.
+                                                     Tax Amt(Incl. Freight)              0.00        0.00
+                                                     Total Amount
+Amount In Words
+IGST In Words :
+You shall confirm and send the acceptance to this PO within 4 Days of the receipt, falling which this order shall be dee
+accepted by the supplier.Any dispute/claim arising out of this contract shall be subjected to kalol jurisdiction only..
+Remarks    AS PER TDC ALL TESTING & 3.2 CERTIFICATION CHARGES INCLUSIVE
+Special Contract Condition(lf any) shall be an itegral part of the Purchase Order as Annexure.
+                                                                                   Page 1 of 2

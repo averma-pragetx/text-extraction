@@ -18,9 +18,13 @@ def main():
     parser = argparse.ArgumentParser(description="PaddleOCR — Spatial Layout Reconstructor")
     
     # Path Arguments
-    parser.add_argument("--input", "-i", default="./input", help="Path to image, PDF, or directory of files")
-    parser.add_argument("--output", "-o", default="./output", help="Directory for output files")
+    # parser.add_argument("--input", "-i", default="./input", help="Path to image, PDF, or directory of files")
+    # parser.add_argument("--output", "-o", default="./output", help="Directory for output files")
     
+    # HARDCODED PATHS FOR TESTING
+    HARDCODED_INPUT = "path/to/your/input"  # <--- ENTER INPUT PATH HERE
+    HARDCODED_OUTPUT = "path/to/your/output" # <--- ENTER OUTPUT PATH HERE
+
     # Configuration Overrides
     parser.add_argument("--width", type=int, default=120, help="Output canvas width (characters)")
     parser.add_argument("--tolerance", type=int, default=10, help="Vertical row clustering tolerance (pixels)")
@@ -30,8 +34,11 @@ def main():
     args = parser.parse_args()
 
     # Default paths (backward compatibility)
-    input_path = args.input or os.getcwd() # Default to current dir if no input
-    output_dir = args.output
+    # input_path = args.input or os.getcwd() # Default to current dir if no input
+    # output_dir = args.output
+    
+    input_path = HARDCODED_INPUT
+    output_dir = HARDCODED_OUTPUT
     
     config = LayoutConfig(
         output_width=args.width,

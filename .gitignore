@@ -4,3 +4,5 @@ utils/__pycache__
 input
 output
 data
+__pycache__
+frontend/node_modules

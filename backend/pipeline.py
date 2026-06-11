@@ -1,5 +1,4 @@
 import logging
-import argparse
 import os
 import time
 import json
@@ -12,8 +11,8 @@ from threading import Thread
 from paddleocr import PaddleOCR
 from utils.layout_config import LayoutConfig
 from utils.spatial_reconstructor import SpatialLayoutReconstructor
-from utils.document_processor import collect_inputs
 import fitz  # PyMuPDF
+import psutil
 
 # Configure Logging
 logging.basicConfig(
@@ -21,6 +20,22 @@ logging.basicConfig(
     format='%(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# Helper Functions for Resource Monitoring
+def get_ram_usage():
+    """Returns the current RAM usage of the process in MB."""
+    return psutil.Process(os.getpid()).memory_info().rss / (1024 * 1024)
+
+def log_metric(agent: str, action: str, start_time: float, start_ram: float):
+    """Logs the time and RAM metrics for a specific step."""
+    end_time = time.time()
+    end_ram = get_ram_usage()
+    duration = end_time - start_time
+    ram_delta = end_ram - start_ram
+    logger.info(f"  [METRIC] {agent} | {action} | Time: {duration:.2f}s | RAM: {end_ram:.2f}MB (Delta: {ram_delta:+.2f}MB)")
+
+# Intel CPU Optimization
+torch.set_num_threads(6) # Optimized for i5-1334U (mix of P and E cores)
 
 # =============================================================================
 # AGENT 1: DOCUMENT SCANNER AGENT
@@ -31,16 +46,17 @@ class ScannerAgent:
     def __init__(self, dpi: int):
         self.dpi = dpi
 
-    def scan(self, fpath: str, ftype: str) -> List[Tuple[int, np.ndarray]]:
-        """Identifies pages and returns them as a list of (page_num, image_np)."""
+    def scan(self, fpath: str, ftype: str):
+        """Identifies pages and yields them one by one (Memory Efficient)."""
         logger.info(f"  [AGENT 1: SCANNER] Scanning document: {os.path.basename(fpath)}")
-        pages = []
+        t_start = time.time()
+        r_start = get_ram_usage()
         
         if ftype == "image":
             try:
                 with Image.open(fpath) as img:
                     img_np = np.array(img.convert("RGB"))
-                    pages.append((1, img_np))
+                    yield (1, img_np)
                 logger.info(f"  [AGENT 1: SCANNER] OK - Single image detected")
             except Exception as e:
                 logger.error(f"  [AGENT 1: SCANNER] Error: {e}")
@@ -58,12 +74,12 @@ class ScannerAgent:
                     page = doc.load_page(i)
                     pix = page.get_pixmap(matrix=matrix, colorspace=fitz.csRGB)
                     img_np = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, 3)
-                    pages.append((i + 1, img_np))
+                    yield (i + 1, img_np)
                 doc.close()
             except Exception as e:
                 logger.error(f"  [AGENT 1: SCANNER] Error: {e}")
-                
-        return pages
+        
+        log_metric("AGENT 1", "Scanning", t_start, r_start)
 
 # =============================================================================
 # AGENT 2: OCR EXTRACTION AGENT
@@ -77,6 +93,8 @@ class OCRAgent:
     def extract(self, page_num: int, img_np: np.ndarray) -> Any:
         """Runs OCR and logs the total character count."""
         logger.info(f"  [AGENT 2: OCR] Extracting text from Page {page_num}...")
+        t_start = time.time()
+        r_start = get_ram_usage()
         
         # PaddleOCR expects BGR
         img_bgr = img_np[:, :, ::-1].copy()
@@ -84,6 +102,7 @@ class OCRAgent:
         
         if not result or not result[0]:
             logger.info(f"  [AGENT 2: OCR] Page {page_num}: 0 characters extracted (No text found)")
+            log_metric("AGENT 2", f"OCR Page {page_num}", t_start, r_start)
             return None
             
         page_res = result[0]
@@ -98,6 +117,7 @@ class OCRAgent:
             total_chars = sum(len(t.strip()) for t in texts)
             
         logger.info(f"  [AGENT 2: OCR] Page {page_num}: {total_chars} characters extracted")
+        log_metric("AGENT 2", f"OCR Page {page_num}", t_start, r_start)
         return page_res
 
 # =============================================================================
@@ -112,10 +132,13 @@ class StructurerAgent:
     def structure(self, page_num: int, ocr_raw_res: Any, fpath: str) -> Dict[str, Any]:
         """Converts raw OCR results into structured spatial rows."""
         logger.info(f"  [AGENT 3: STRUCTURER] Mapping spatial layout for Page {page_num}...")
+        t_start = time.time()
+        r_start = get_ram_usage()
         
         blocks, ix_min, ix_max = self.reconstructor._extract_valid_blocks(ocr_raw_res)
         
         if not blocks:
+            log_metric("AGENT 3", f"Structuring Page {page_num}", t_start, r_start)
             return {"page": page_num, "source": fpath, "block_count": 0, "rows": []}
 
         iw = max(ix_max - ix_min, 1.0)
@@ -128,6 +151,7 @@ class StructurerAgent:
         ]
 
         logger.info(f"  [AGENT 3: STRUCTURER] OK - Structured into {len(json_rows)} rows")
+        log_metric("AGENT 3", f"Structuring Page {page_num}", t_start, r_start)
         return {
             "page": page_num,
             "source": fpath,
@@ -143,29 +167,29 @@ class LLMAgent:
     
     def __init__(self, model_id="Qwen/Qwen3-1.7B"):
         logger.info(f"  [AGENT 4: LLM] Loading model: {model_id} (CPU Mode)...")
+        t_start = time.time()
+        r_start = get_ram_usage()
+        
         self.tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
         
-        # CPU Optimization: Try bfloat16 for speed, fallback to float32
-        # Note: bfloat16 is often faster on modern CPUs with AVX-512
-        dtype = torch.float32
-        try:
-            # Check if bfloat16 is likely to work/be faster
-            if torch.cuda.is_available():
-                dtype = torch.bfloat16
-        except:
-            pass
+        # Use bfloat16 for faster CPU inference on Intel 13th Gen
+        dtype = torch.bfloat16
 
         self.model = AutoModelForCausalLM.from_pretrained(
             model_id,
             device_map="cpu",
             torch_dtype=dtype,
-            trust_remote_code=True
+            trust_remote_code=True,
+            low_cpu_mem_usage=True
         )
+        log_metric("AGENT 4", "Model Load", t_start, r_start)
         logger.info(f"  [AGENT 4: LLM] OK - Model ready ({dtype})")
 
-    def infer_and_save(self, full_ocr_json: Dict[str, Any], output_path: str):
-        """Runs LLM reasoning and saves the final output."""
+    def infer(self, full_ocr_json: Dict[str, Any]) -> Dict[str, Any]:
+        """Runs LLM reasoning and returns the final output as JSON."""
         logger.info(f"  [AGENT 4: LLM] Reasoning over document structure...")
+        t_start = time.time()
+        r_start = get_ram_usage()
         
         # Build text prompt from all structured pages
         full_text = ""
@@ -174,18 +198,9 @@ class LLMAgent:
             for row in page.get("rows", []):
                 full_text += row.get("rendered_line", "") + "\n"
 
-        system_instruction = (
-            "You are an expert document analyzer. Your task is to extract all meaningful fields "
-            "from the provided OCR text and return them in a structured JSON format. "
-            "Use your thinking mode to reason about the spatial layout and field-value relationships."
-        )
+        system_instruction = "Extract OCR to JSON. No reasoning or thinking fields. Output ONLY JSON."
 
-        user_prompt = (
-            f"Analyze the following OCR text and extract all fields into a valid JSON object. "
-            f"Include a 'thinking' field in your response for your reasoning process.\n\n"
-            f"OCR TEXT:\n{full_text}\n\n"
-            f"OUTPUT FORMAT:\n{{\"thinking\": \"...\", \"extracted_fields\": {{...}}}}"
-        )
+        user_prompt = f"Convert OCR to JSON. No 'thought' fields.\n\nOCR:\n{full_text}\n\nFORMAT:\n{{'extracted_fields': {{...}}}}"
 
         messages = [
             {"role": "system", "content": system_instruction},
@@ -194,6 +209,7 @@ class LLMAgent:
         
         text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         model_inputs = self.tokenizer([text], return_tensors="pt").to("cpu")
+        input_token_count = model_inputs.input_ids.shape[1]
 
         # Set up streamer for real-time feedback
         streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
@@ -201,9 +217,9 @@ class LLMAgent:
         generate_kwargs = dict(
             **model_inputs,
             streamer=streamer,
-            max_new_tokens=1024, # Optimized token limit for faster extraction
+            max_new_tokens=1024,
             do_sample=True,
-            temperature=0.7,
+            temperature=0.5,
             top_p=0.9
         )
 
@@ -211,99 +227,71 @@ class LLMAgent:
         thread = Thread(target=self.model.generate, kwargs=generate_kwargs)
         thread.start()
 
-        print("\n--- LLM Reasoning & Extraction (Live Feed) ---")
         response_text = ""
         for new_text in streamer:
-            print(new_text, end="", flush=True)
             response_text += new_text
-        print("\n----------------------------------------------\n")
         
         # Wait for thread to finish
         thread.join()
-
-        # Parse and Save
+        
+        # Parse result
         try:
             json_start = response_text.find('{')
             json_end = response_text.rfind('}') + 1
             final_data = json.loads(response_text[json_start:json_end])
         except:
             final_data = {"raw_output": response_text}
-
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(final_data, f, indent=2, ensure_ascii=False)
         
-        logger.info(f"  [AGENT 4: LLM] OK - Final extraction saved to: {os.path.basename(output_path)}")
+        log_metric("AGENT 4", "Inference", t_start, r_start)
+        return final_data
 
 # =============================================================================
-# ORCHESTRATOR
+# PIPELINE MANAGER (SINGLETON)
 # =============================================================================
-def main():
-    parser = argparse.ArgumentParser(description="Agentic Document Extraction Workflow")
-    parser.add_argument("--input", "-i", default="./input", help="Path to input files")
-    parser.add_argument("--output", "-o", default="./output", help="Directory for output")
-    parser.add_argument("--dpi", type=int, default=250, help="DPI for PDF scan")
-    parser.add_argument("--skip-llm", action="store_true", help="Skip LLM agent")
-    args = parser.parse_args()
+class PipelineManager:
+    def __init__(self, dpi: int = 100):
+        self.dpi = dpi
+        self.config = LayoutConfig(pdf_dpi=self.dpi)
+        
+        logger.info(f"\n[SYSTEM] Initializing Backend Pipeline Tools...")
+        # Disabling MKLDNN to fix NotImplementedError with PIR executor on Windows
+        self.ocr_engine = PaddleOCR(lang="en", enable_mkldnn=False)
+        self.reconstructor = SpatialLayoutReconstructor(self.config, self.ocr_engine)
+        
+        # Initialize Agents
+        self.scanner = ScannerAgent(dpi=self.dpi)
+        self.ocr_agent = OCRAgent(model=self.ocr_engine)
+        self.structurer = StructurerAgent(reconstructor=self.reconstructor)
+        self.llm_agent = LLMAgent()
+        
+        logger.info(f"[SYSTEM] Pipeline ready. RAM Usage: {get_ram_usage():.2f}MB")
 
-    # Configuration
-    config = LayoutConfig(pdf_dpi=args.dpi)
-    os.makedirs(args.output, exist_ok=True)
-
-    # Initialize Backend Tools
-    ocr_engine = PaddleOCR(lang="en", enable_mkldnn=False)
-    reconstructor = SpatialLayoutReconstructor(config, ocr_engine)
-
-    # Initialize Agents
-    scanner = ScannerAgent(dpi=args.dpi)
-    ocr_agent = OCRAgent(model=ocr_engine)
-    structurer = StructurerAgent(reconstructor=reconstructor)
-    llm_agent = None if args.skip_llm else LLMAgent()
-
-    inputs = collect_inputs(args.input)
-    logger.info(f"\n[WORKFLOW] Starting Agentic Pipeline for {len(inputs)} files\n")
-
-    workflow_start = time.time()
-
-    for idx, (ftype, fpath) in enumerate(inputs, 1):
-        file_start = time.time()
+    def process_file(self, fpath: str) -> Dict[str, Any]:
+        """Orchestrates the full extraction pipeline for a single file."""
         fname = os.path.basename(fpath)
-        logger.info(f"{'='*60}\nFILE {idx}/{len(inputs)}: {fname}\n{'='*60}")
+        ext = os.path.splitext(fname)[1].lower()
+        ftype = "pdf" if ext == ".pdf" else "image"
         
-        # Agent 1: Scan
-        t1_start = time.time()
-        page_images = scanner.scan(fpath, ftype)
-        t1_end = time.time()
-        logger.info(f"  [METRIC] Agent 1 (Scanner) took: {t1_end - t1_start:.2f}s")
+        logger.info(f"\n[WORKFLOW] Starting extraction for: {fname}")
+        file_start = time.time()
+        
+        # 1. Scan
+        page_images = list(self.scanner.scan(fpath, ftype))
         
         document_pages_data = []
         total_blocks = 0
         
-        t2_total = 0.0
-        t3_total = 0.0
-
-        # Process each page through Agent 2 & 3
+        # 2 & 3. OCR and Structuring
         for page_num, img_np in page_images:
-            # Agent 2: OCR
-            t2_start = time.time()
-            raw_ocr = ocr_agent.extract(page_num, img_np)
-            t2_total += (time.time() - t2_start)
-            
-            # Agent 3: Structure
+            raw_ocr = self.ocr_agent.extract(page_num, img_np)
             if raw_ocr:
-                t3_start = time.time()
-                page_data = structurer.structure(page_num, raw_ocr, fpath)
-                t3_total += (time.time() - t3_start)
-                
+                page_data = self.structurer.structure(page_num, raw_ocr, fpath)
                 document_pages_data.append(page_data)
                 total_blocks += page_data["block_count"]
 
-        logger.info(f"  [METRIC] Agent 2 (OCR) took: {t2_total:.2f}s (Total for {len(page_images)} pages)")
-        logger.info(f"  [METRIC] Agent 3 (Structurer) took: {t3_total:.2f}s (Total for {len(page_images)} pages)")
-
-        # Final Document Metadata
         full_doc_json = {
             "meta": {
-                "source": fpath,
+                "source": fname,
                 "parsed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
                 "page_count": len(page_images),
                 "total_blocks": total_blocks
@@ -311,25 +299,13 @@ def main():
             "pages": document_pages_data
         }
 
-        # Save Intermediate OCR Result
-        ocr_out_path = os.path.join(args.output, f"{os.path.splitext(fname)[0]}.json")
-        with open(ocr_out_path, 'w', encoding='utf-8') as f:
-            json.dump(full_doc_json, f, indent=2, ensure_ascii=False)
-        logger.info(f"  [WORKFLOW] Intermediate layout JSON saved.")
-
-        # Agent 4: LLM Inference
-        if llm_agent:
-            t4_start = time.time()
-            final_out_path = os.path.join(args.output, f"{os.path.splitext(fname)[0]}_final.json")
-            llm_agent.infer_and_save(full_doc_json, final_out_path)
-            t4_end = time.time()
-            logger.info(f"  [METRIC] Agent 4 (LLM) took: {t4_end - t4_start:.2f}s")
-
+        # 4. LLM Inference
+        final_result = self.llm_agent.infer(full_doc_json)
+        
         file_duration = time.time() - file_start
-        logger.info(f"\n[OK] File {idx} complete in {file_duration:.2f}s\n")
-
-    workflow_duration = time.time() - workflow_start
-    logger.info(f"{'='*60}\n[WORKFLOW COMPLETE] Total Pipeline Time: {workflow_duration:.2f}s\n{'='*60}")
-
-if __name__ == "__main__":
-    main()
+        logger.info(f"[OK] {fname} processed in {file_duration:.2f}s")
+        
+        return {
+            "metadata": full_doc_json["meta"],
+            "extraction": final_result
+        }

@@ -27,14 +27,18 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 async def root():
     return {"message": "Document Extraction API is running"}
 
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
 @app.post("/extract")
 async def extract_document(file: UploadFile = File(...)):
     # Validate file type
-    ext = os.path.splitext(file.filename)[1].lower()
-    if ext not in [".pdf", ".png", ".jpg", ".jpeg"]:
+    if not is_allowed_file(file.filename):
         raise HTTPException(status_code=400, detail="Invalid file type. Supported: PDF, PNG, JPG")
 
     # Save file temporarily
+    ext = os.path.splitext(file.filename)[1].lower()
     file_id = str(uuid.uuid4())
     temp_file_path = os.path.join(UPLOAD_DIR, f"{file_id}{ext}")
     

@@ -5,4 +5,5 @@ input
 output
 data
 __pycache__
+backend/temp_uploads
 frontend/node_modules

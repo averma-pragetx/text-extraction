@@ -83,7 +83,7 @@ function App() {
     formData.append('file', file);
 
     try {
-      const response = await fetch('http://localhost:8000/extract', {
+      const response = await fetch(`${import.meta.env.VITE_API_URL}/extract`, {
         method: 'POST',
         body: formData,
       });
@@ -125,7 +125,7 @@ function App() {
           ) : (
             <div>
               <p style={{ fontWeight: 600 }}>Click to upload or drag and drop</p>
-              <p style={{ fontSize: '0.875rem', color: '#64748b' }}>PDF, PNG, JPG (Max 10MB)</p>
+              <p style={{ fontSize: '0.875rem', color: '#64748b' }}>PDF, PNG, JPG, JPEG (Max 10MB)</p>
             </div>
           )}
           <input 

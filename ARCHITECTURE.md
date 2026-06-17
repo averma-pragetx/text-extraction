@@ -6,202 +6,222 @@ This document provides a comprehensive analysis of the architectural design, cor
 
 ## 1. System Overview
 
-The primary objective of this project is to extract text from documents (both static images and multi-page PDFs) while preserving their original spatial layout (e.g., table alignments, columns, indentation, and grid-like visual relationships). 
+The primary objective of this project is to extract text from documents (both static images and multi-page PDFs) while preserving their original spatial layout (e.g., table alignments, columns, indentation, and grid-like visual relationships) and performing semantic reasoning over the extracted text to identify key financial metrics.
 
 Maintaining the exact spatial format is essential for downstream analysis of semi-structured documents, such as **invoices, purchase orders, shipping manifests, and receipts**, where the spatial correlation of tokens carries significant semantic meaning (e.g., associating a line item description with its unit cost).
 
 ### Key Features
+* **Dual-Pipeline Architecture**:
+  1. **Local CLI Tool**: Processes batch files directly into plain text layout files (`.txt`) and structured visual layouts (`.json`).
+  2. **Full-Stack Web App**: Provides an interactive React dashboard that communicates with a FastAPI server to run an agentic LLM pipeline for financial metrics extraction.
 * **Multi-Format Input Pipeline**: Gracefully handles single files or entire directories of images (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.tiff`) and `.pdf` files.
-* **Preservation of Visual Column Alignments**: Maps irregular OCR bounding boxes onto a consistent character canvas grid.
-* **Dynamic DPI Rasterization**: Employs PyMuPDF to render vector PDF pages into high-fidelity raster images at dynamic resolutions.
-* **Dual Output Architecture**: Produces a human-readable `.txt` layout map and a structured `.json` object containing precise coordinate-linked metadata.
+* **Preservation of Visual Column Alignments**: Maps irregular OCR bounding boxes onto a consistent character canvas grid using linear interpolation.
+* **Dynamic DPI Rasterization**: Employs PyMuPDF (`fitz`) to render vector PDF pages into high-fidelity raster images at dynamic resolutions.
+* **Four-Agent Extraction Pipeline**: Coordinates document scanning, text extraction, spatial reconstruction, and generative LLM reasoning.
+* **Financial Analysis Dashboard**: Evaluates and visualizes standard Earned Value Management (EVM) parameters like Budget at Completion (BAC), Actual Cost (AC), and Variance (BAC - AC).
 
 ---
 
 ## 2. Component Architecture Diagram
 
-The diagram below details the structural relationships between the application components and libraries, tracing data from cli inputs to the final persistence layer.
+The diagram below details the structural relationships between the web application, backend API, multi-agent pipeline, and local CLI tools.
 
 ```mermaid
 flowchart TD
-    classDef main fill:#d4ebf2,stroke:#1a73e8,stroke-width:2px;
-    classDef util fill:#e6f4ea,stroke:#137333,stroke-width:1px;
-    classDef lib fill:#fef7e0,stroke:#b06000,stroke-width:1px;
-    classDef io fill:#fce8e6,stroke:#c5221f,stroke-width:1px;
+    classDef react fill:#e6f4ea,stroke:#137333,stroke-width:1px;
+    classDef fastapi fill:#d4ebf2,stroke:#1a73e8,stroke-width:2px;
+    classDef agents fill:#fef7e0,stroke:#b06000,stroke-width:1.5px;
+    classDef util fill:#f5f5f5,stroke:#7f7f7f,stroke-width:1px;
+    classDef lib fill:#fce8e6,stroke:#c5221f,stroke-width:1px;
+    classDef io fill:#e8eaed,stroke:#5f6368,stroke-width:1px;
 
-    CLI[CLI Main Entry Point<br/>'invoice_extraction.py']:::main
-    LC[Layout Configuration<br/>'LayoutConfig']:::util
-    SLR[Spatial Layout Reconstructor<br/>'SpatialLayoutReconstructor']:::util
-    DP[Document Processor<br/>'DocumentProcessor']:::util
-    CI[Input Collector<br/>'collect_inputs']:::util
-    
+    %% Frontend Components
+    subgraph Frontend [React Frontend - Vite]
+        App[App.jsx - Main Dashboard]:::react
+        Metrics[MetricsPage - Variance & Dashboard]:::react
+        CSS[index.css - Design System]:::react
+    end
+
+    %% Backend Server & Orchestrator
+    subgraph Backend [FastAPI Server & Pipeline]
+        API[api.py - FastAPI Endpoint]:::fastapi
+        PM[PipelineManager - Coordinator]:::fastapi
+        
+        %% Agents
+        subgraph AgenticSystem [Multi-Agent System]
+            A1[ScannerAgent<br/>Agent 1]:::agents
+            A2[OCRAgent<br/>Agent 2]:::agents
+            A3[StructurerAgent<br/>Agent 3]:::agents
+            A4[LLMAgent<br/>Agent 4]:::agents
+        end
+    end
+
+    %% Local CLI Tools
+    subgraph CLI [Local CLI Batch Pipeline]
+        Entry[invoice_extraction.py - Entry]:::util
+        DP[DocumentProcessor]:::util
+        LC[LayoutConfig]:::util
+    end
+
+    %% Underlying Shared Reconstructor
+    SLR[SpatialLayoutReconstructor]:::util
+
+    %% External Engines & Outputs
     P_OCR[PaddleOCR Engine]:::lib
-    FITZ[PyMuPDF / 'fitz']:::lib
-    PyPDF[PyPDF / 'PdfReader']:::lib
-    PIL[Pillow / 'PIL.Image']:::lib
+    FITZ[PyMuPDF / fitz]:::lib
+    LLM_Model[Qwen3-1.7B LLM]:::lib
     
-    Inputs[Input Directory / File]:::io
-    Outputs[Output Directory<br/>.txt & .json]:::io
+    Inputs[Input Files / Uploads]:::io
+    Outputs[Output Directory / DB]:::io
 
-    CLI -->|Parses CLI Args & Instantiates| LC
-    CLI -->|Calls| CI
-    Inputs -->|Resolved By| CI
-    CI -->|Returns File List| CLI
+    %% Connections
+    App -->|POST /extract| API
+    App -->|Navigates| Metrics
+    API -->|Orchestrates| PM
     
-    CLI -->|Loads Engine| P_OCR
-    CLI -->|Constructs| SLR
-    LC -->|Configures| SLR
-    P_OCR -->|Injected Into| SLR
-    
-    CLI -->|Constructs & Drives| DP
-    SLR -->|Injected Into| DP
-    
-    DP -->|1. Scan PDF Pages| PyPDF
-    DP -->|2. Rasterize PDF Pages| FITZ
-    DP -->|3. Load Images| PIL
-    
-    FITZ -->|Page Image NP Array| SLR
-    PIL -->|Page Image NP Array| SLR
-    
-    SLR -->|Runs Inference| P_OCR
-    P_OCR -->|OCR Bounding Boxes & Text| SLR
-    
-    SLR -->|4. Reconstructs Layout| SLR
-    DP -->|5. Writes Files| Outputs
+    PM -->|1. Scan| A1
+    PM -->|2. Extract OCR| A2
+    PM -->|3. Reconstruct Layout| A3
+    PM -->|4. LLM Reasoning| A4
+
+    %% Shared logic
+    A1 -->|Rasterize| FITZ
+    A2 -->|OCR Inference| P_OCR
+    A3 -->|Canvas Mapping| SLR
+    A4 -->|Causal Language Model| LLM_Model
+
+    %% CLI Connections
+    Entry -->|Uses| DP
+    Entry -->|Uses| LC
+    DP -->|Canvas Mapping| SLR
+    SLR -->|Inference| P_OCR
+
+    %% Input/Output
+    Inputs -->|Upload File| App
+    Inputs -->|Read Local| Entry
+    DP -->|Write Local| Outputs
+    PM -->|Return JSON| API
+    API -->|Response| App
 ```
 
 ---
 
 ## 3. Class & Component Breakdown
 
-### A. Main Entry Point: `invoice_extraction.py`
-The CLI controller is responsible for orchestrating the setup and execution loop. It handles the following:
-* **CLI Parameter Management**: Uses `argparse` to ingest customizable thresholds (canvas width, vertical clustering tolerances, confidence filters, and PDF DPI resolutions).
-* **Logging Setup**: Standardizes console logs to format execution steps in a readable manner.
-* **Engine Lifecycle**: Boots up the `PaddleOCR` model instance with the configured language (`lang="en"`) and execution flags.
-* **Batch Orchestration**: Loops through the collected inputs, triggers the `DocumentProcessor`, handles file-level metric aggregation (run duration, word blocks, page counts), and logs final statistics.
+### A. Frontend Dashboard (React + Vite)
+Located in the `frontend` directory, it contains the user interface components:
+* **`src/App.jsx`**: The main interface managing state for file selection, upload interaction, and JSON display. It triggers document extraction via a POST request to `/extract`.
+* **`src/App.jsx (MetricsPage)`**: Computes and displays the financial metrics. It parses `budget_at_completion` (BAC) and `actual_cost` (AC), calculates the financial `variance` (BAC - AC), and provides warning messages if costs exceed the budget.
+* **`src/index.css`**: Standardizes visual elements with responsive grid layouts, custom card classes, loading states, and custom badge styling.
 
-### B. Configuration Module: `utils/layout_config.py`
-Defines a central configuration registry using Python's `@dataclass`.
+### B. FastAPI Endpoint: `backend/api.py`
+The REST API backend orchestrates document uploads and pipeline executions:
+* **`POST /upload`**: Receives document files and writes them to the `uploads/` directory with a unique UUID mapping.
+* **`POST /extract`**: Processes a file dynamically. Saves the document to a temporary directory (`temp_uploads`), invokes `PipelineManager` to perform OCR and LLM-based field extraction, returns the structured JSON output, and cleans up the temporary files.
 
-| Property | Type | Default Value | Description |
-| :--- | :--- | :--- | :--- |
-| `output_width` | `int` | `120` | Canvas width measured in characters. Dictates the column resolution of the output text. |
-| `row_tolerance` | `int` | `10` | Vertical clustering tolerance in pixels. Determines if text blocks belong to the same line. |
-| `min_confidence` | `float` | `0.5` | Threshold to discard low-confidence OCR text blocks. |
-| `pdf_dpi` | `int` | `100` | Rasterization density (dots per inch) for converting vector pages into images for OCR. |
+### C. The Multi-Agent Pipeline: `backend/pipeline.py`
+Coordinates the extraction process across four specialized agent classes:
+1. **`ScannerAgent` (Agent 1 - Document Scanner)**: Identifies document format. For images, it loads them into standard NumPy RGB buffers. For multi-page PDFs, it loads them using `fitz` (PyMuPDF) and renders them page-by-page at a configured DPI scaling factor (e.g., `zoom = dpi / 72`) as a memory-efficient generator.
+2. **`OCRAgent` (Agent 2 - OCR Extraction)**: Wraps PaddleOCR inference. Converts RGB frames to BGR, executes OCR to retrieve tokens and bounding polygons, and logs character count statistics.
+3. **`StructurerAgent` (Agent 3 - Layout Structurer)**: Coordinates with `SpatialLayoutReconstructor` to map raw OCR bounding boxes onto discrete rows and column indices, returning a JSON array representing the page's spatial layout.
+4. **`LLMAgent` (Agent 4 - LLM Inference)**: Loads `Qwen/Qwen3-1.7B` on CPU (optimized with `torch.bfloat16` and `torch.set_num_threads(6)` for Intel 13th Gen architectures). Translates the reconstructed spatial page layout into a prompt, executes causal reasoning, and parses the generative response to extract key JSON parameters.
+5. **`PipelineManager`**: Initializer and orchestrator. Bootstraps the models and routes document pages sequentially through the scanner, OCR, structurer, and LLM reasoning steps.
 
-### C. Document Processing Pipeline: `utils/document_processor.py`
-Handles multi-format system operations and maps raw files to standard input representations.
-* **`collect_inputs(input_path)`**: Resolves a path (supporting single file or folder targets) and returns a list of matched items classified by type (`pdf` or `image`).
-* **`process_image(image_path)`**:
-  1. Opens the image using Pillow, converting it into a standard RGB NumPy array.
-  2. Passes the array to the `SpatialLayoutReconstructor`.
-  3. Formulates a JSON schema mapping page metadata, block counts, and character-mapped lines.
-  4. Saves `.txt` and `.json` files to the output directory.
-* **`process_pdf(pdf_path)`**:
-  1. Leverages `pypdf.PdfReader` inside `identify_target_pages` to evaluate page counts and boundaries.
-  2. Opens the file with `pymupdf` (`fitz`).
-  3. Computes the zoom matrix from DPI scaling (`zoom = pdf_dpi / 72.0` because PyMuPDF's default scaling factor is 72 DPI).
-  4. Iteratively rasterizes pages into RGB numpy buffers.
-  5. Feeds each page image through the layout reconstructor, merging page-wise outputs using visual header delimiters (`PAGE X | Y blocks detected` and line boxes `===`).
-  6. Outputs combined documents.
+### D. Local CLI Components (`backend/utils/` and `backend/invoice_extraction.py`)
+Provides direct CLI batch execution for local files:
+* **`invoice_extraction.py`**: Boots the standalone `PaddleOCR` instance, reads command-line override parameters (width, tolerance, confidence, DPI), and batch-processes files from input directories.
+* **`utils/layout_config.py`**: Registry dataclass for tuning parameters:
+  * `output_width` (Default: `120`): Target canvas width in characters.
+  * `row_tolerance` (Default: `10`): Vertical distance threshold in pixels for row grouping.
+  * `min_confidence` (Default: `0.5`): Minimum score required to accept OCR blocks.
+  * `pdf_dpi` (Default: `100` / `250`): Resolution for rendering PDF vector graphics.
+* **`utils/document_processor.py`**: Manages the local file system interactions (reading directories of PDFs/images and writing output files).
+* **`utils/spatial_reconstructor.py`**: Implements the layout mapping algorithm.
 
-### D. Spatial Layout Reconstructor: `utils/spatial_reconstructor.py`
-The core algothrimic block that builds a structured visual representation from scattered spatial tokens. It executes three key phases sequentially for every page image:
-
-#### Phase 1: Valid Block Extraction (`_extract_valid_blocks`)
-Accepts raw PaddleOCR outputs (supporting standard lists and PaddleX dictionaries).
-* Iterates through elements, enforcing `min_confidence`.
-* Extracts the standard coordinates of the bounding box polygon: `[[x1,y1], [x2,y2], [x3,y3], [x4,y4]]`.
-* Computes the bounding limits:
-  $$\text{x\_min} = \min(x_1, x_2, x_3, x_4)$$
-  $$\text{x\_max} = \max(x_1, x_2, x_3, x_4)$$
-  $$\text{y\_mid} = \frac{\min(y_1, y_2, y_3, y_4) + \max(y_1, y_2, y_3, y_4)}{2}$$
-* Tracks page-wide bounds `ix_min` and `ix_max` to identify active content widths and prevent layout stretching or compressing due to blank margin padding.
-
-#### Phase 2: Row Proximity Clustering (`_cluster_into_rows`)
-Groups irregular spatial points into coherent rows.
-1. Sorts all valid blocks vertically by their center coordinate `y`.
-2. Groups adjacent blocks into a single row if their vertical distance difference satisfies:
-   $$|y_{block} - y_{row\_origin}| \le \text{row\_tolerance}$$
-3. Once clustered vertically, sorts each row's individual blocks horizontally from left to right:
-   $$\text{sort key} = x$$
-
-#### Phase 3: Character Column Mapping & Rendering (`_render_lines`)
-Projects bounding box coordinates onto a character-based coordinate system.
-1. Computes the effective content width: $\text{iw} = \max(\text{ix\_max} - \text{ix\_min}, 1.0)$.
-2. For each cluster row, creates an array of spaces of length `output_width`.
-3. Maps each block's horizontal coordinate $x$ to a discrete column index using linear interpolation:
-   $$\text{col} = \left\lfloor \frac{x - \text{ix\_min}}{\text{iw}} \times (\text{output\_width} - 1) \right\rfloor$$
-4. Overwrites the spaces array starting at `col` with the characters of the detected text string, ensuring bounds are capped at `output_width` to prevent array overflows.
-5. Returns a clean string representing the row.
+### E. Database & Schema Models (MongoDB Integration)
+Integrates a data persistence layer to store extraction results and metadata:
+* **`backend/models/`**: Package containing structured Pydantic V2 schemas:
+  * **`extracted_fields.py`**: Holds line item and financial metrics schemas.
+  * **`metadata.py`**: Defines visual and parsing document metadata schemas.
+  * **`invoice.py`**: Houses the main database schemas (`InvoiceCreate` and `InvoiceSchema`), utilizing relative imports and handling ObjectId string mappings.
+  * **`__init__.py`**: Exposes the schemas at the package level for clean module imports.
+* **`backend/database.py`**: Handles connection management using a singleton `pymongo` client from `.env` configurations. Contains helper CRUD operations (`save_invoice`, `get_invoice_by_id`, `list_invoices`, `delete_invoice`) and performs automatic variance calculations during invoice creation.
 
 ---
 
 ## 4. Technical Data Flow
 
-The lifecycle of a single document processing run is detailed in the step-by-step sequential path below:
+The codebase runs two distinct pipelines sharing the spatial mapping core:
 
+### Web API Pipeline (Agentic LLM Extraction)
 ```
-[Input Document] 
-       │
-       ▼
- ┌──────────┐      Image (PNG, JPG, etc.)      ┌──────────────────┐
- │  Input   ├─────────────────────────────────►│   Pillow (PIL)   │
- │ Resolver │                                  └────────┬─────────┘
- └─────┬────┘                                           │ (NumPy RGB Array)
-       │                                                ▼
-       │           PDF Document                ┌──────────────────┐
-       └──────────────────────────────────────►│ PyMuPDF (fitz)   │
-                                               └────────┬─────────┘
-                                                        │ (DPI Rasterization)
-                                                        ▼
-                                               ┌──────────────────┐
-                                               │    PaddleOCR     │
-                                               └────────┬─────────┘
-                                                        │ (Raw Bounding Boxes)
-                                                        ▼
-                                               ┌──────────────────┐
-                                               │ _extract_blocks  │
-                                               └────────┬─────────┘
-                                                        │ (Confidence Filter)
-                                                        ▼
-                                               ┌──────────────────┐
-                                               │ _cluster_rows    │
-                                               └────────┬─────────┘
-                                                        │ (Sorted Row Groups)
-                                                        ▼
-                                               ┌──────────────────┐
-                                               │  _render_lines   │
-                                               └────────┬─────────┘
-                                                        │ (Canvas Mapping)
-                                                        ▼
-                                               ┌──────────────────┐
-                                               │  _save_results   │
-                                               └────────┬─────────┘
-                                                        │
-                                      ┌─────────────────┴─────────────────┐
-                                      ▼                                   ▼
-                            ┌──────────────────┐                ┌──────────────────┐
-                            │    TXT Output    │                │   JSON Output    │
-                            │ (Visual Layout)  │                │   (Structured)   │
-                            └──────────────────┘                └──────────────────┘
+[Frontend App.jsx] ──(File Upload)──► [FastAPI Server] ──► [PipelineManager]
+                                                                  │
+                                 ┌────────────────────────────────┘
+                                 ▼
+                     1. [ScannerAgent] ────► Loads PIL Images / Rasterizes PDFs
+                                 │
+                                 ▼
+                     2. [OCRAgent] ───────► Extracts raw characters & coordinates
+                                 │
+                                 ▼
+                     3. [StructurerAgent] ──► Performs 2D Grid mapping using Reconstructor
+                                 │
+                                 ▼
+                     4. [LLMAgent] ────────► Generates Qwen3 JSON containing BAC & AC
+                                 │
+                                 ▼
+[Frontend MetricsPage] ◄──(JSON Response)◄─ [FastAPI Server]
+```
+
+### CLI Pipeline (Direct Local Formatting)
+```
+[Local Input Folder] ──► [invoice_extraction.py] ──► [DocumentProcessor]
+                                                            │
+                                                            ▼
+                                              [SpatialLayoutReconstructor]
+                                                            │
+                                                            ▼
+                                              Extracts and clusters bounding boxes
+                                                            │
+                                                            ▼
+                                              Projects coordinates to character grid
+                                                            │
+                                                            ▼
+                                              Saves local .txt and .json outputs
 ```
 
 ---
 
-## 5. Output Data Formats
+## 5. Spatial Reconstruction Algorithm
 
-For every source document processed, two primary files are generated within the output directory:
+The underlying spatial reconstruction algorithm in [utils/spatial_reconstructor.py](file:///C:/Projects/text_extraction/backend/utils/spatial_reconstructor.py) works in three logical phases:
 
-### 1. Plain Text Output (`.txt`)
-Provides a visual approximation of the document. Spatially correlated data columns are aligned directly under their headers using padding spaces, and page splits are clearly demarcated.
+### Phase 1: Bounding Box Normalization
+The model extracts bounding boxes, filters out entries with low confidence, and calculates the absolute horizontal boundary coordinates (`ix_min` and `ix_max`) and page heights:
+$$\text{x\_min} = \min(x_1, x_2, x_3, x_4)$$
+$$\text{x\_max} = \max(x_1, x_2, x_3, x_4)$$
+$$\text{y\_mid} = \frac{\min(y_1, y_2, y_3, y_4) + \max(y_1, y_2, y_3, y_4)}{2}$$
+$$\text{iw} = \max(\text{ix\_max} - \text{ix\_min}, 1.0)$$
 
-### 2. Structured JSON Output (`.json`)
-Saves a complete metadata envelope and coordinate mapping. This output is ideal for downstream database insertions, REST APIs, or parsing scripts.
+### Phase 2: Vertical Clustering (Row Identification)
+Detections are sorted vertically by their midpoints (`y_mid`). Elements are grouped into the same row if their distance satisfies:
+$$|y_{\text{block}} - y_{\text{row\_origin}}| \le \text{row\_tolerance}$$
+Once grouped, the elements inside each row are sorted horizontally from left to right.
 
-#### JSON Output Example Schema:
+### Phase 3: Character Column Interpolation
+Each row is mapped onto a character array of size `output_width`. The column index for a block's starting character is computed via linear interpolation:
+$$\text{col} = \left\lfloor \frac{x_{\text{min}} - \text{ix\_min}}{\text{iw}} \times (\text{output\_width} - 1) \right\rfloor$$
+Characters are written into the array at their relative indices, and the array is joined as a string and stripped of trailing whitespace.
+
+---
+
+## 6. Output Data Formats
+
+The extraction result returns two core JSON envelopes:
+
+### 1. Spatial Layout JSON (Direct from Reconstructor / CLI)
+Maps the exact layout of the page using spaced character lines:
 ```json
 {
   "meta": {
@@ -209,15 +229,15 @@ Saves a complete metadata envelope and coordinate mapping. This output is ideal 
     "row_tolerance": 10,
     "min_confidence": 0.5,
     "pdf_dpi": 100,
-    "source": "./input/invoice_sample.pdf",
-    "parsed_at": "2026-06-01 11:15:32",
+    "source": "invoice_sample.pdf",
+    "parsed_at": "2026-06-16 12:15:32",
     "page_count": 1,
     "total_blocks": 24
   },
   "pages": [
     {
       "page": 1,
-      "source": "./input/invoice_sample.pdf",
+      "source": "invoice_sample.pdf",
       "block_count": 24,
       "rows": [
         {
@@ -227,18 +247,6 @@ Saves a complete metadata envelope and coordinate mapping. This output is ideal 
         {
           "row": 2,
           "rendered_line": "Date: 2026-06-01                                     Due Date: 2026-07-01"
-        },
-        {
-          "row": 3,
-          "rendered_line": "------------------------------------------------------------------------"
-        },
-        {
-          "row": 4,
-          "rendered_line": "Description                  Qty         Unit Price             Amount"
-        },
-        {
-          "row": 5,
-          "rendered_line": "Spatial OCR Software Suite    1          $1,200.00           $1,200.00"
         }
       ]
     }
@@ -246,18 +254,64 @@ Saves a complete metadata envelope and coordinate mapping. This output is ideal 
 }
 ```
 
----
-
-## 6. Execution & Parameters guide
-
-The utility can be executed via the command line with several options to tune performance based on specific document types:
-
-```bash
-python invoice_extraction.py --input ./input --output ./output --width 120 --tolerance 10 --confidence 0.5 --dpi 150
+### 2. Extracted Fields JSON (Output of LLMAgent)
+Contains semantic information parsed by the LLM:
+```json
+{
+  "metadata": {
+    "source": "invoice_sample.pdf",
+    "parsed_at": "2026-06-16 12:15:45",
+    "page_count": 1,
+    "total_blocks": 24
+  },
+  "extraction": {
+    "extracted_fields": {
+      "budget_at_completion": 50000.0,
+      "actual_cost": 12500.0,
+      "invoice_number": "INV-2026-004",
+      "date": "2026-06-01",
+      "vendor_name": "Antigravity Spatial Systems",
+      "line_items": [
+        {
+          "description": "Spatial OCR Software Suite",
+          "quantity": 1,
+          "unit_price": 12500.0,
+          "amount": 12500.0
+        }
+      ],
+      "total_amount": 12500.0
+    }
+  }
+}
 ```
 
-### Key Parameter Tuning Recommendations:
-* **Complex Multi-Column Tables**: Increase `--width` to `150` or `180` to expand the column grid and prevent text blocks in adjacent columns from overlapping.
-* **Narrow Line Spacing**: Decrease `--tolerance` to `6` or `8` to prevent text lines that are very close vertically from being mistakenly clustered into a single row.
-* **Handwritten or Faint Invoices**: Lower `--confidence` to `0.4` to preserve faint characters, though this may increase noise blocks.
-* **Low-resolution Vector PDFs**: Increase `--dpi` to `150` or `200` to yield sharper images during the rasterization process, improving the OCR character recognition rate.
+---
+
+## 7. Execution Guide
+
+### Running the Local CLI Tool
+To process documents locally and generate `.txt` layout files and `.json` mappings:
+```bash
+cd backend
+python invoice_extraction.py --width 120 --tolerance 10 --confidence 0.5 --dpi 250
+```
+*(Note: Edit `invoice_extraction.py` to update `HARDCODED_INPUT` and `HARDCODED_OUTPUT` constants.)*
+
+### Running the Backend API
+Start the FastAPI server:
+```bash
+cd backend
+python api.py
+```
+Or run with uvicorn:
+```bash
+uvicorn api:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Running the React Frontend
+Set your environment variables in `frontend/.env` (e.g., `VITE_API_URL=http://localhost:8000`), then start the development server:
+```bash
+cd frontend
+npm install
+npm run dev
+```

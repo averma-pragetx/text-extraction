@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field, BeforeValidator
-from typing import Annotated, Optional, Dict, Any
+from typing import Annotated, Optional, Dict, Any, List
 from datetime import datetime
 
 from .metadata import InvoiceMetadataSchema
@@ -14,6 +14,8 @@ class InvoiceCreate(BaseModel):
     metadata: InvoiceMetadataSchema
     extraction: Dict[str, Any]  # Storing the raw JSON output from the LLM agent
     extracted_fields: Optional[ExtractedFieldsSchema] = None
+    s3: Optional[Dict[str, Any]] = None
+    remarks: Optional[List[str]] = []
 
 class InvoiceSchema(BaseModel):
     """Full schema representation of an invoice saved in MongoDB, including database ID."""
@@ -22,6 +24,8 @@ class InvoiceSchema(BaseModel):
     metadata: InvoiceMetadataSchema
     extraction: Dict[str, Any]
     extracted_fields: Optional[ExtractedFieldsSchema] = None
+    s3: Optional[Dict[str, Any]] = None
+    remarks: Optional[List[str]] = []
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Config:

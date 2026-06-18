@@ -3,17 +3,19 @@ import uuid
 import shutil
 import asyncio
 import json
-from fastapi import APIRouter, UploadFile, File, HTTPException, WebSocket, WebSocketDisconnect
-from typing import Dict, List
-from schemas.document import DocumentStatus, ExtractionResult, SavedExtractionCreate, StatusUpdate
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException, WebSocket, WebSocketDisconnect
+from typing import Dict, List, Optional
+from schemas.document import DocumentStatus, ExtractionResult, SavedExtractionCreate, StatusUpdate, RemarksUpdate
 from core.pipeline import PipelineManager
 from database import (
     delete_extraction_record, 
     list_extraction_records, 
     save_extraction_record,
     get_extraction_record,
-    update_extraction_status
+    update_extraction_status,
+    update_extraction_remarks
 )
+from storage import delete_document_from_s3, upload_document_to_s3, generate_s3_presigned_url
 import logging
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -91,27 +93,66 @@ async def get_document(record_id: str):
         raise HTTPException(status_code=404, detail="Saved extraction record not found")
     return record
 
-@router.post("/save", summary="Save extraction result", response_description="The ID of the saved record")
-async def save_document(payload: SavedExtractionCreate):
-    """Stores a processed document's raw JSON payload in MongoDB for future reference."""
+@router.post("/save", summary="Save document and extraction result", response_description="The ID of the saved record")
+async def save_document(
+    file: UploadFile = File(...),
+    filename: str = Form(...),
+    raw_json: str = Form(...),
+    original_name: Optional[str] = Form(None),
+    remarks: str = Form("[]"),
+):
+    """Uploads the original document to S3 and stores extraction JSON, metadata, and S3 reference in MongoDB."""
     try:
-        record_id = save_extraction_record(
-            filename=payload.filename,
-            original_name=payload.original_name,
-            raw_json=payload.raw_json,
+        try:
+            parsed_raw_json = json.loads(raw_json)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid raw_json payload: {exc}")
+
+        try:
+            parsed_remarks = json.loads(remarks) if remarks else []
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid remarks payload: {exc}")
+
+        if isinstance(parsed_remarks, str):
+            parsed_remarks = [parsed_remarks]
+        if not isinstance(parsed_remarks, list):
+            raise HTTPException(status_code=400, detail="Remarks must be a JSON array or string")
+
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Document file is empty")
+
+        s3_metadata = upload_document_to_s3(
+            content=content,
+            filename=filename,
+            content_type=file.content_type,
         )
-        return {"id": record_id, "message": "Extraction JSON saved"}
+        record_id = save_extraction_record(
+            filename=filename,
+            original_name=original_name or filename,
+            raw_json=parsed_raw_json,
+            s3_metadata=s3_metadata,
+            remarks=[str(item) for item in parsed_remarks if str(item).strip()],
+        )
+        return {"id": record_id, "message": "Document saved", "s3": s3_metadata}
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to save extraction JSON: {e}")
-        raise HTTPException(status_code=503, detail=f"Could not save to MongoDB: {e}")
+        logger.error(f"Failed to save document: {e}")
+        raise HTTPException(status_code=503, detail=f"Could not save document: {e}")
 
 @router.delete("/{record_id}", summary="Delete document", response_description="Success confirmation")
 async def delete_document(record_id: str):
-    """Deletes a saved extraction record from MongoDB."""
+    """Deletes a saved extraction record from MongoDB and removes the S3 document when available."""
+    record = get_extraction_record(record_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Saved extraction record not found")
+
+    s3_deleted = delete_document_from_s3(record.get("s3"))
     deleted = delete_extraction_record(record_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Saved extraction record not found")
-    return {"id": record_id, "deleted": True}
+    return {"id": record_id, "deleted": True, "s3_deleted": s3_deleted}
 
 @router.patch("/{record_id}/status", summary="Update document status", response_description="The updated status")
 async def update_status(record_id: str, payload: StatusUpdate):
@@ -123,6 +164,27 @@ async def update_status(record_id: str, payload: StatusUpdate):
     if not success:
         raise HTTPException(status_code=404, detail="Record not found or status already set")
     return {"id": record_id, "status": payload.status}
+
+@router.patch("/{record_id}/remarks", summary="Update document remarks", response_description="The updated remarks")
+async def update_remarks(record_id: str, payload: RemarksUpdate):
+    """Updates the remarks of a saved extraction record."""
+    success = update_extraction_remarks(record_id, payload.remarks)
+    if not success:
+        raise HTTPException(status_code=404, detail="Record not found")
+    return {"id": record_id, "remarks": payload.remarks}
+
+@router.get("/{record_id}/view", summary="View document", response_description="S3 pre-signed URL")
+async def view_document(record_id: str):
+    """Generates a pre-signed URL for viewing the S3 document."""
+    record = get_extraction_record(record_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Saved extraction record not found")
+    
+    url = generate_s3_presigned_url(record.get("s3"))
+    if not url:
+        raise HTTPException(status_code=404, detail="S3 document not found or could not generate URL")
+    
+    return {"url": url}
 
 @router.post("/upload", summary="Upload document for processing", response_description="Assigned file ID")
 async def upload_document(file: UploadFile = File(...)):

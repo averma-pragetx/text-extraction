@@ -19,6 +19,11 @@ class SavedExtractionCreate(BaseModel):
     filename: str
     original_name: Optional[str] = None
     raw_json: Dict[str, Any]
+    remarks: Optional[List[str]] = []
+    s3_metadata: Optional[Dict[str, Any]] = None
 
 class StatusUpdate(BaseModel):
     status: str
+
+class RemarksUpdate(BaseModel):
+    remarks: List[str]

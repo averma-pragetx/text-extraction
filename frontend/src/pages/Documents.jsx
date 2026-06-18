@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect } from "react";
+﻿import { useState, useRef, useEffect } from "react";
 import { 
   Upload, ScanLine, Brain, Database, CircleCheck, Check, Pencil, X, Eye, 
   RotateCcw, Table as TableIcon, LayoutGrid, FileText, Code, Building2, 
   Calendar, Hash, Phone, Receipt, DollarSign, ShoppingCart, Copy, CheckCheck,
-  Save, Trash2, Loader2
+  Save, Trash2, Loader2, MessageSquare, ExternalLink
 } from "lucide-react";
 import { useC } from "../context/ThemeContext";
 import { Chip } from "../components/common/Chip";
@@ -25,6 +25,7 @@ export function Documents() {
   const [stage, setStage] = useState(-1);
   const [done, setDone] = useState(false);
   const [fileName, setFileName] = useState("");
+  const [currentFile, setCurrentFile] = useState(null);
   const [fileError, setFileError] = useState("");
   const [dragging, setDragging] = useState(false);
   const [showRemarksModal, setShowRemarksModal] = useState(false);
@@ -42,6 +43,8 @@ export function Documents() {
   const [showPreviewModal, setShowPreviewModal] = useState(false);
   const [previewJson, setPreviewJson] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [viewingS3, setViewingS3] = useState(null);
+  const [showRemarksDetail, setShowRemarksDetail] = useState(null);
   
   const [summary, setSummary] = useState(null);
   
@@ -69,6 +72,7 @@ export function Documents() {
     setStage(-1);
     setDone(false);
     setFileName("");
+    setCurrentFile(null);
     setFileError("");
     setRemarks([]);
     setExtractedFields(null);
@@ -86,24 +90,49 @@ export function Documents() {
     setDone(true);
     setSavedRecordId(item.id);
     setSaveMessage("");
+    setRemarks(Array.isArray(item.remarks) ? item.remarks : []);
+    setCurrentFile(null);
     processExtractionResult(item.raw_json || item);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  const openS3Document = async (e, item) => {
+    e.stopPropagation();
+    if (!item.id || viewingS3) return;
+    setViewingS3(item.id);
+    try {
+      const res = await fetch(`${API_BASE}/documents/${item.id}/view`);
+      if (!res.ok) throw new Error("Failed to get S3 URL");
+      const { url } = await res.json();
+      window.open(url, "_blank");
+    } catch (err) {
+      console.error(err);
+      alert("Could not open S3 document");
+    } finally {
+      setViewingS3(null);
+    }
+  };
+
   const saveCurrentJson = async () => {
     if (!rawResult || savingJson || savedRecordId) return;
+    if (!currentFile) {
+      setSaveMessage("Original document is not available. Please re-upload the document before saving.");
+      return;
+    }
     setSavingJson(true);
     setSaveMessage("");
 
     try {
+      const formData = new FormData();
+      formData.append("file", currentFile);
+      formData.append("filename", fileName || currentFile.name || rawResult?.metadata?.source || "processed_document");
+      formData.append("original_name", currentFile.name || fileName || rawResult?.metadata?.source || "processed_document");
+      formData.append("raw_json", JSON.stringify(rawResult));
+      formData.append("remarks", JSON.stringify(remarks));
+
       const res = await fetch(`${API_BASE}/documents/save`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          filename: fileName || rawResult?.metadata?.source || "processed_document",
-          original_name: fileName || rawResult?.metadata?.source || "processed_document",
-          raw_json: rawResult,
-        }),
+        body: formData,
       });
 
       if (!res.ok) {
@@ -156,7 +185,7 @@ export function Documents() {
       const res = await fetch(`${API_BASE}/documents/get/${item.id}`);
       if (!res.ok) throw new Error("Failed to fetch preview");
       const data = await res.json();
-      setPreviewJson(data.raw_json || data);
+      setPreviewJson(data);
     } catch (err) {
       console.error(err);
       setPreviewJson({ error: "Could not load JSON data" });
@@ -201,6 +230,7 @@ export function Documents() {
 
   const startProcessing = async (file) => {
     setFileName(file.name);
+    setCurrentFile(file);
     setFileError("");
     setDone(false);
     setRemarks([]);
@@ -287,10 +317,26 @@ export function Documents() {
     setShowRemarksModal(true);
   };
 
-  const saveRemarks = () => {
+  const saveRemarks = async () => {
     const parsed = tempRemarksText.split(",").map(r => r.trim()).filter(r => r.length > 0);
     setRemarks(parsed);
     setShowRemarksModal(false);
+
+    // If the document is already saved, update the remarks in the backend
+    if (savedRecordId) {
+      try {
+        const res = await fetch(`${API_BASE}/documents/${savedRecordId}/remarks`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ remarks: parsed }),
+        });
+        if (!res.ok) throw new Error("Failed to update remarks");
+        await fetchHistory();
+      } catch (err) {
+        console.error("Error updating remarks:", err);
+        setSaveMessage("Failed to update remarks in database");
+      }
+    }
   };
 
   return (
@@ -576,7 +622,7 @@ export function Documents() {
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12.5 }}>
           <thead>
             <tr>
-              {["Document", "Type", "Created At", "Status", "Actions"].map((h) => (
+              {["Document", "Type", "Source", "Remarks", "Created At", "Status", "Actions"].map((h) => (
                 <th key={h} className="mono" style={{ textAlign: "left", color: c.dim, fontSize: 9.5, textTransform: "uppercase", letterSpacing: ".5px", padding: "0 10px 12px 0", fontWeight: 700 }}>{h}</th>
               ))}
             </tr>
@@ -595,6 +641,31 @@ export function Documents() {
               >
                 <td style={{ padding: "14px 10px 14px 0", color: c.text, fontWeight: 500 }}>{r.filename}</td>
                 <td style={{ padding: "14px 10px" }}><Chip color={c.cyan}>{r.type}</Chip></td>
+                <td style={{ padding: "14px 10px" }}>
+                  {r.s3?.key ? (
+                    <button 
+                      className="gbtn ghost" 
+                      onClick={(e) => openS3Document(e, r)}
+                      disabled={viewingS3 === r.id}
+                      style={{ padding: "5px 8px", fontSize: 10, color: c.cyan, display: "flex", alignItems: "center", gap: 5 }}
+                    >
+                      {viewingS3 === r.id ? <Loader2 size={12} className="spin" /> : <ExternalLink size={12} />}
+                      View Document
+                    </button>
+                  ) : <span className="mono" style={{ color: c.dim }}>—</span>}
+                </td>
+                <td style={{ padding: "14px 10px" }}>
+                  {Array.isArray(r.remarks) && r.remarks.length > 0 ? (
+                    <button 
+                      className="gbtn ghost" 
+                      onClick={(e) => { e.stopPropagation(); setShowRemarksDetail(r); }}
+                      style={{ padding: "5px 8px", fontSize: 10, color: c.violet, display: "flex", alignItems: "center", gap: 5 }}
+                    >
+                      <MessageSquare size={12} />
+                      {r.remarks.length} Remarks
+                    </button>
+                  ) : <span className="mono" style={{ color: c.dim }}>—</span>}
+                </td>
                 <td className="mono" style={{ padding: "14px 10px", color: c.muted }}>{r.processed_at || r.created_at || "—"}</td>
                 <td style={{ padding: "14px 10px" }}>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: r.status === "Approved" ? c.cyan : r.status === "Rejected" ? c.red : c.lime, fontSize: 11.5 }}>
@@ -630,7 +701,7 @@ export function Documents() {
                     </button>
                     <button
                       className="gbtn ghost"
-                      title="Delete saved JSON"
+                      title="Delete saved document"
                       onClick={(e) => deleteHistoryItem(e, r)}
                       disabled={deletingId === r.id}
                       style={{ padding: "7px 10px", fontSize: 11, color: c.red }}
@@ -644,6 +715,47 @@ export function Documents() {
           </tbody>
         </table>
       </div>
+
+      {/* Remarks Detail Modal */}
+      {showRemarksDetail && (
+        <div 
+          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: c.isDark ? "rgba(6, 8, 15, 0.7)" : "rgba(15, 20, 40, 0.45)", backdropFilter: "blur(8px)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, animation: "rise 0.3s ease-out" }}
+          onClick={() => setShowRemarksDetail(null)}
+        >
+          <div className="glass" style={{ width: "100%", maxWidth: "420px", background: c.isDark ? c.bg2 : "#ffffff", padding: "28px", boxShadow: c.isDark ? "0 20px 50px rgba(0,0,0,0.5)" : "0 20px 50px rgba(15,20,40,0.12)", display: "flex", flexDirection: "column", gap: 16 }} onClick={(e) => e.stopPropagation()}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <MessageSquare size={20} color={c.violet} />
+                <span className="disp" style={{ fontWeight: 700, fontSize: 18, color: c.text }}>Remarks Detail</span>
+              </div>
+              <button className="gbtn ghost" style={{ padding: "6px 10px", borderRadius: "10px" }} onClick={() => setShowRemarksDetail(null)}><X size={16} /></button>
+            </div>
+            
+            <div className="mono" style={{ fontSize: 11, color: c.muted }}>Stored remarks for <span style={{ color: c.cyan }}>{showRemarksDetail.filename}</span></div>
+            
+            <div style={{ display: "flex", flexDirection: "column", gap: 10, marginTop: 8 }}>
+              {showRemarksDetail.remarks.map((remark, idx) => (
+                <div key={idx} style={{ 
+                  padding: "12px 16px", 
+                  borderRadius: 12, 
+                  background: c.isDark ? "rgba(255,255,255,0.03)" : "#F9FAFC",
+                  border: `1px solid ${c.glassBorder}`,
+                  borderLeft: `3px solid ${c.violet}`,
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                  color: c.text
+                }}>
+                  {remark}
+                </div>
+              ))}
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 10 }}>
+              <button className="gbtn" style={{ padding: "10px 18px", fontSize: 13 }} onClick={() => setShowRemarksDetail(null)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Remarks Modal */}
       {showRemarksModal && (

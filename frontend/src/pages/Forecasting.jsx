@@ -44,17 +44,6 @@ export function Forecasting() {
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div className="rise glass" style={{ padding: "20px 24px", display: "flex", gap: 14, justifyContent: "space-between" }}>
-        {lights.map((x) => (
-          <div key={x.l} style={{ flex: 1, display: "flex", alignItems: "center", gap: 12 }}>
-            <div style={{ width: 14, height: 14, borderRadius: 99, background: x.col, boxShadow: `0 0 16px ${x.col}`, animation: "pulseGlow 2s infinite" }} />
-            <div>
-              <div className="disp" style={{ fontSize: 14, fontWeight: 600 }}>{x.l}</div>
-              <div className="mono" style={{ fontSize: 10, color: c.dim, textTransform: "uppercase" }}>{x.s}</div>
-            </div>
-          </div>
-        ))}
-      </div>
       <div className="rise" style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 14 }}>
         {cards.map((x) => (
           <div key={x.l} className="glass statCard" style={{ padding: "18px 20px" }}>

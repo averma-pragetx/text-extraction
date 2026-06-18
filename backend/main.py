@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from api import documents
+from api import documents, dashboard, review
 import uvicorn
 from contextlib import asynccontextmanager
 
@@ -40,6 +40,8 @@ app.add_middleware(
 
 # Include routers
 app.include_router(documents.router)
+app.include_router(dashboard.router)
+app.include_router(review.router)
 
 @app.get("/")
 async def root():

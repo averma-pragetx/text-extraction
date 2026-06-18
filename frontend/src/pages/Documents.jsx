@@ -165,6 +165,23 @@ export function Documents() {
     }
   };
 
+  const updateDocumentStatus = async (e, item, newStatus) => {
+    e.stopPropagation();
+    if (!item.id) return;
+
+    try {
+      const res = await fetch(`${API_BASE}/documents/${item.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!res.ok) throw new Error("Failed to update status");
+      await fetchHistory();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const copyRawJson = () => {
 
     const jsonStr = JSON.stringify(rawResult, null, 2);
@@ -580,8 +597,8 @@ export function Documents() {
                 <td style={{ padding: "14px 10px" }}><Chip color={c.cyan}>{r.type}</Chip></td>
                 <td className="mono" style={{ padding: "14px 10px", color: c.muted }}>{r.processed_at || r.created_at || "—"}</td>
                 <td style={{ padding: "14px 10px" }}>
-                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: c.lime, fontSize: 11.5 }}>
-                    <GlowDot color={c.lime} />{r.status}
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: r.status === "Approved" ? c.cyan : r.status === "Rejected" ? c.red : c.lime, fontSize: 11.5 }}>
+                    <GlowDot color={r.status === "Approved" ? c.cyan : r.status === "Rejected" ? c.red : c.lime} />{r.status}
                   </span>
                 </td>
                 <td style={{ padding: "14px 10px" }}>
@@ -594,6 +611,22 @@ export function Documents() {
                       style={{ padding: "7px 10px", fontSize: 11, color: c.cyan }}
                     >
                       {previewLoading === r.id ? <Loader2 size={14} style={{ verticalAlign: -2, animation: "spin 1s linear infinite" }} /> : <Eye size={14} style={{ verticalAlign: -2 }} />}
+                    </button>
+                    <button
+                      className="gbtn ghost"
+                      title="Approve"
+                      onClick={(e) => updateDocumentStatus(e, r, "Approved")}
+                      style={{ padding: "7px 10px", fontSize: 11, color: c.lime }}
+                    >
+                      <Check size={14} style={{ verticalAlign: -2 }} />
+                    </button>
+                    <button
+                      className="gbtn ghost"
+                      title="Reject"
+                      onClick={(e) => updateDocumentStatus(e, r, "Rejected")}
+                      style={{ padding: "7px 10px", fontSize: 11, color: c.red }}
+                    >
+                      <X size={14} style={{ verticalAlign: -2 }} />
                     </button>
                     <button
                       className="gbtn ghost"

@@ -23,7 +23,12 @@ async def lifespan(app: FastAPI):
     print("-------------------------\n")
     yield
 
-app = FastAPI(title="EPCFlow Realtime API", lifespan=lifespan)
+app = FastAPI(
+    title="EPCFlow Realtime API",
+    description="Backend API for Document Ingestion, AI-driven Extraction, and Approval Workflow Management.",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
 app.add_middleware(
     CORSMiddleware,

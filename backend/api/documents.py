@@ -5,13 +5,14 @@ import asyncio
 import json
 from fastapi import APIRouter, UploadFile, File, HTTPException, WebSocket, WebSocketDisconnect
 from typing import Dict, List
-from schemas.document import DocumentStatus, ExtractionResult, SavedExtractionCreate
+from schemas.document import DocumentStatus, ExtractionResult, SavedExtractionCreate, StatusUpdate
 from core.pipeline import PipelineManager
 from database import (
     delete_extraction_record, 
     list_extraction_records, 
     save_extraction_record,
-    get_extraction_record
+    get_extraction_record,
+    update_extraction_status
 )
 import logging
 
@@ -73,7 +74,7 @@ async def broadcast_status(file_id: str, status: str, progress: int, message: st
             if not active_connections[file_id]:
                 del active_connections[file_id]
 
-@router.get("/")
+@router.get("/", summary="List all documents", response_description="List of saved extraction records")
 async def list_documents():
     """Lists saved extraction records from MongoDB."""
     try:
@@ -82,17 +83,17 @@ async def list_documents():
         logger.error(f"Failed to list saved extraction records: {e}")
         raise HTTPException(status_code=503, detail=f"Could not read MongoDB records: {e}")
 
-@router.get("/get/{record_id}")
+@router.get("/get/{record_id}", summary="Get document by ID", response_description="The specific extraction record")
 async def get_document(record_id: str):
-    """Fetches a single extraction record from MongoDB."""
+    """Fetches a single extraction record from MongoDB using its unique ID."""
     record = get_extraction_record(record_id)
     if not record:
         raise HTTPException(status_code=404, detail="Saved extraction record not found")
     return record
 
-@router.post("/save")
+@router.post("/save", summary="Save extraction result", response_description="The ID of the saved record")
 async def save_document(payload: SavedExtractionCreate):
-    """Stores a processed document's raw JSON payload in MongoDB."""
+    """Stores a processed document's raw JSON payload in MongoDB for future reference."""
     try:
         record_id = save_extraction_record(
             filename=payload.filename,
@@ -104,7 +105,7 @@ async def save_document(payload: SavedExtractionCreate):
         logger.error(f"Failed to save extraction JSON: {e}")
         raise HTTPException(status_code=503, detail=f"Could not save to MongoDB: {e}")
 
-@router.delete("/{record_id}")
+@router.delete("/{record_id}", summary="Delete document", response_description="Success confirmation")
 async def delete_document(record_id: str):
     """Deletes a saved extraction record from MongoDB."""
     deleted = delete_extraction_record(record_id)
@@ -112,7 +113,18 @@ async def delete_document(record_id: str):
         raise HTTPException(status_code=404, detail="Saved extraction record not found")
     return {"id": record_id, "deleted": True}
 
-@router.post("/upload")
+@router.patch("/{record_id}/status", summary="Update document status", response_description="The updated status")
+async def update_status(record_id: str, payload: StatusUpdate):
+    """Updates the status of a saved extraction record (e.g., Saved -> Approved)."""
+    if payload.status not in ["Saved", "Approved", "Rejected"]:
+        raise HTTPException(status_code=400, detail="Invalid status value")
+    
+    success = update_extraction_status(record_id, payload.status)
+    if not success:
+        raise HTTPException(status_code=404, detail="Record not found or status already set")
+    return {"id": record_id, "status": payload.status}
+
+@router.post("/upload", summary="Upload document for processing", response_description="Assigned file ID")
 async def upload_document(file: UploadFile = File(...)):
     file_id = str(uuid.uuid4())
     content = await file.read()

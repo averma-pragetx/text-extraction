@@ -160,6 +160,21 @@ def delete_extraction_record(record_id: str) -> bool:
         logger.error(f"Error deleting extraction record {record_id}: {e}")
         return False
 
+def update_extraction_status(record_id: str, status: str) -> bool:
+    """Updates the status of a saved extraction record."""
+    collection = get_extractions_collection()
+    if status not in ["Saved", "Approved", "Rejected"]:
+        logger.error(f"Invalid status value: {status}")
+        return False
+    try:
+        # Try finding by ObjectId first
+        query = {"_id": ObjectId(record_id)} if len(record_id) == 24 else {"_id": record_id}
+        result = collection.update_one(query, {"$set": {"status": status}})
+        return result.modified_count > 0
+    except Exception as e:
+        logger.error(f"Error updating extraction status {record_id}: {e}")
+        return False
+
 def save_invoice(invoice_data: InvoiceCreate) -> str:
     """
     Saves a new invoice record to MongoDB.

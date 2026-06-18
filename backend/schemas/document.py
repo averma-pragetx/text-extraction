@@ -19,3 +19,6 @@ class SavedExtractionCreate(BaseModel):
     filename: str
     original_name: Optional[str] = None
     raw_json: Dict[str, Any]
+
+class StatusUpdate(BaseModel):
+    status: str

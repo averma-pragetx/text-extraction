@@ -59,7 +59,6 @@ A high-performance system designed to extract text from semi-structured document
 4. Create a `.env` file in the `backend/` directory:
    ```env
    MONGODB_URI=mongodb://localhost:27017
-   MONGODB_DB_NAME=text_extraction
    ```
 
 ### 2. Frontend Setup

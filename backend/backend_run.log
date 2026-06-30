@@ -1,0 +1,41 @@
+Loaded environment variables from: C:\Projects\text_extraction\backend\.env
+INFO:     Started server process [3556]
+INFO:     Waiting for application startup.
+[SYSTEM] Pre-loading models...
+
+[PIPELINE] Initializing Multi-Agent System...
+INFO: Could not find files for the given pattern(s).
+C:\Projects\text_extraction\backend\venv\Lib\site-packages\paddle\utils\cpp_extension\extension_utils.py:712: UserWarning: No ccache found. Please be aware that recompiling all source files may be required. You can download and install ccache from: https://github.com/ccache/ccache/blob/master/doc/INSTALL.md
+  warnings.warn(warning_message)
+[32mCreating model: ('PP-LCNet_x1_0_doc_ori', None, None)[0m
+[32mModel files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\PragetX Softwares\.paddlex\official_models\PP-LCNet_x1_0_doc_ori`.[0m
+[32mCreating model: ('UVDoc', None, None)[0m
+[32mModel files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\PragetX Softwares\.paddlex\official_models\UVDoc`.[0m
+[32mCreating model: ('PP-LCNet_x1_0_textline_ori', None, None)[0m
+[32mModel files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\PragetX Softwares\.paddlex\official_models\PP-LCNet_x1_0_textline_ori`.[0m
+[32mCreating model: ('PP-OCRv6_medium_det', None, None)[0m
+[32mModel files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\PragetX Softwares\.paddlex\official_models\PP-OCRv6_medium_det`.[0m
+[32mCreating model: ('PP-OCRv6_medium_rec', None, None)[0m
+[32mModel files already exist. Using cached files. To redownload, please delete the directory manually: `C:\Users\PragetX Softwares\.paddlex\official_models\PP-OCRv6_medium_rec`.[0m
+[LLM] Using remote service: http://localhost:5000/infer
+[PIPELINE] LLM extraction enabled
+[PIPELINE] Ready. RAM Usage: 680.18 MB
+
+[SYSTEM] Models loaded and ready.
+INFO:     Application startup complete.
+ERROR:    [Errno 10048] error while attempting to bind on address ('0.0.0.0', 8000): only one usage of each socket address (protocol/network address/port) is normally permitted
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.
+
+--- Active API Routes ---
+  /openapi.json | {'GET', 'HEAD'}
+  /docs | {'GET', 'HEAD'}
+  /docs/oauth2-redirect | {'GET', 'HEAD'}
+  /redoc | {'GET', 'HEAD'}
+  [Complex Route] Unnamed | _IncludedRouter
+  [Complex Route] Unnamed | _IncludedRouter
+  [Complex Route] Unnamed | _IncludedRouter
+  / | {'GET'}
+  /health | {'GET'}
+-------------------------
+

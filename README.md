@@ -19,11 +19,12 @@ A high-performance system designed to extract text from semi-structured document
 
 ## 🛠️ Tech Stack
 
-### Backend
+### Backend & LLM
 - **Framework**: FastAPI
 - **OCR Engine**: PaddleOCR
 - **PDF Processing**: PyMuPDF (fitz)
-- **Machine Learning**: PyTorch, Transformers (Qwen3-1.7B LLM)
+- **LLM Service**: Standalone FastAPI service running Qwen3-1.7B
+- **Machine Learning**: PyTorch, Transformers
 - **Database**: MongoDB (via PyMongo)
 - **Environment**: Python 3.10+
 
@@ -42,7 +43,17 @@ A high-performance system designed to extract text from semi-structured document
 - **Node.js 18 or higher** (with npm or yarn)
 - **MongoDB** (Local or Atlas instance)
 
-### 1. Backend Setup
+### 1. LLM Service Setup
+1. Navigate to the llm directory:
+   ```bash
+   cd llm
+   ```
+2. Create and activate a virtual environment, then install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+### 2. Backend Setup
 1. Navigate to the backend directory:
    ```bash
    cd backend
@@ -59,9 +70,10 @@ A high-performance system designed to extract text from semi-structured document
 4. Create a `.env` file in the `backend/` directory:
    ```env
    MONGODB_URI=mongodb://localhost:27017
+   LLM_SERVICE_URL=http://localhost:5000/infer
    ```
 
-### 2. Frontend Setup
+### 3. Frontend Setup
 1. Navigate to the frontend directory:
    ```bash
    cd frontend
@@ -70,24 +82,27 @@ A high-performance system designed to extract text from semi-structured document
    ```bash
    npm install
    ```
-3. (Optional) Create a `.env` file if you need to override the API URL:
-   ```env
-   VITE_API_URL=http://localhost:8000
-   ```
 
 ---
 
 ## 🖥️ Usage
 
 ### Running the Web Application
-1. **Start the Backend**:
+1. **Start the LLM Service**:
+   ```bash
+   cd llm
+   python main.py
+   ```
+   The LLM service will be available at `http://localhost:5000`.
+
+2. **Start the Backend**:
    ```bash
    cd backend
    python main.py
    ```
    The API will be available at `http://localhost:8000`.
 
-2. **Start the Frontend**:
+3. **Start the Frontend**:
    ```bash
    cd frontend
    npm run dev

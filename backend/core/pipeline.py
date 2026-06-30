@@ -4,18 +4,17 @@ import time
 import json
 import re
 import ast
-import torch
-import io
-import numpy as np
-from typing import List, Dict, Tuple, Any, Callable, Optional
-from PIL import Image
-from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
+import requests
 from threading import Thread
 from paddleocr import PaddleOCR
 from utils.layout_config import LayoutConfig
 from utils.spatial_reconstructor import SpatialLayoutReconstructor
 import fitz  # PyMuPDF
 import psutil
+from typing import Optional, Any, Dict, List, Tuple, Callable
+from PIL import Image
+import numpy as np
+import io 
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO, format='%(message)s')
@@ -134,12 +133,9 @@ class StructurerAgent:
         }
 
 class LLMAgent:
-    def __init__(self, model_id="Qwen/Qwen3-1.7B"):
-        self.tokenizer = AutoTokenizer.from_pretrained(model_id, trust_remote_code=True)
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_id, device_map="cpu", torch_dtype=torch.bfloat16,
-            trust_remote_code=True, low_cpu_mem_usage=True
-        )
+    def __init__(self, service_url=None):
+        self.service_url = service_url or os.getenv("LLM_SERVICE_URL")
+        logger.info(f"[LLM] Using remote service: {self.service_url}")
 
     def _extract_full_text(self, full_ocr_json: Dict[str, Any]) -> str:
         full_text = ""
@@ -148,196 +144,6 @@ class LLMAgent:
             for row in page.get("rows", []):
                 full_text += row.get("rendered_line", "") + "\n"
         return full_text
-
-    def _clean_response(self, raw_response: str) -> str:
-        """Extracts the first complete JSON object from noisy model output."""
-        text = (raw_response or "").strip()
-        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL | re.IGNORECASE).strip()
-        text = text.replace("```json", "```").replace("```JSON", "```")
-
-        fenced = re.search(r"```(?:\s*)(\{.*?\})(?:\s*)```", text, flags=re.DOTALL)
-        if fenced:
-            return fenced.group(1).strip()
-
-        start_idx = text.find("{")
-        if start_idx == -1:
-            return text
-
-        depth = 0
-        in_string = False
-        escaped = False
-        for idx in range(start_idx, len(text)):
-            char = text[idx]
-            if escaped:
-                escaped = False
-                continue
-            if char == "\\":
-                escaped = True
-                continue
-            if char == '"':
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if char == "{":
-                depth += 1
-            elif char == "}":
-                depth -= 1
-                if depth == 0:
-                    return text[start_idx:idx + 1].strip()
-
-        return text[start_idx:].strip()
-
-    def _repair_json_heuristics(self, json_text: str) -> str:
-        """Repairs common model JSON mistakes without changing valid JSON."""
-        repaired = json_text.strip()
-        repaired = repaired.replace("\u201c", '"').replace("\u201d", '"')
-        repaired = repaired.replace("\u2018", "'").replace("\u2019", "'")
-        repaired = re.sub(r"//.*?$", "", repaired, flags=re.MULTILINE)
-        repaired = re.sub(r"/\*.*?\*/", "", repaired, flags=re.DOTALL)
-        repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
-        repaired = self._quote_unquoted_json_keys(repaired)
-        repaired = self._close_incomplete_json(repaired)
-        chars = []
-        in_string = False
-        escaped = False
-
-        for char in repaired:
-            if escaped:
-                chars.append(char)
-                escaped = False
-                continue
-            if char == "\\":
-                chars.append(char)
-                escaped = True
-                continue
-            if char == '"':
-                chars.append(char)
-                in_string = not in_string
-                continue
-            if char == "\n" and in_string:
-                chars.append("\\n")
-                continue
-            chars.append(char)
-
-        return "".join(chars)
-
-    def _quote_unquoted_json_keys(self, json_text: str) -> str:
-        """Quotes simple object keys emitted by the model without double quotes."""
-        chars = []
-        in_string = False
-        escaped = False
-        idx = 0
-
-        while idx < len(json_text):
-            char = json_text[idx]
-            if escaped:
-                chars.append(char)
-                escaped = False
-                idx += 1
-                continue
-            if char == "\\":
-                chars.append(char)
-                escaped = True
-                idx += 1
-                continue
-            if char == '"':
-                chars.append(char)
-                in_string = not in_string
-                idx += 1
-                continue
-
-            if not in_string and char in "{,":
-                chars.append(char)
-                idx += 1
-                while idx < len(json_text) and json_text[idx].isspace():
-                    chars.append(json_text[idx])
-                    idx += 1
-
-                key_start = idx
-                if idx < len(json_text) and re.match(r"[A-Za-z_]", json_text[idx]):
-                    idx += 1
-                    while idx < len(json_text) and re.match(r"[A-Za-z0-9_ -]", json_text[idx]):
-                        idx += 1
-                    key = json_text[key_start:idx].strip()
-                    lookahead = idx
-                    while lookahead < len(json_text) and json_text[lookahead].isspace():
-                        lookahead += 1
-                    if key and lookahead < len(json_text) and json_text[lookahead] == ":":
-                        chars.append(json.dumps(key))
-                        idx = lookahead
-                        continue
-                    chars.append(json_text[key_start:idx])
-                    continue
-
-                continue
-
-            chars.append(char)
-            idx += 1
-
-        return "".join(chars)
-
-    def _close_incomplete_json(self, json_text: str) -> str:
-        """Adds missing closing braces/brackets when generation stops early."""
-        stack = []
-        in_string = False
-        escaped = False
-
-        for char in json_text:
-            if escaped:
-                escaped = False
-                continue
-            if char == "\\":
-                escaped = True
-                continue
-            if char == '"':
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if char == "{":
-                stack.append("}")
-            elif char == "[":
-                stack.append("]")
-            elif char in "}]":
-                if stack and stack[-1] == char:
-                    stack.pop()
-
-        if in_string:
-            json_text += '"'
-        return json_text + "".join(reversed(stack))
-
-    def _parse_python_literal_response(self, json_text: str) -> Dict[str, Any]:
-        """Accepts Python-style dicts that models sometimes emit."""
-        parsed = ast.literal_eval(json_text)
-        if not isinstance(parsed, dict):
-            raise ValueError("Parsed literal is not an object")
-        return parsed
-
-    def _parse_json_response(self, raw_response: str) -> Dict[str, Any]:
-        cleaned = self._clean_response(raw_response)
-        if "{" not in cleaned:
-            raise ValueError("No JSON object found in model response")
-
-        decoder = json.JSONDecoder()
-        candidates = [
-            cleaned[cleaned.find("{"):],
-            self._repair_json_heuristics(cleaned[cleaned.find("{"):]),
-        ]
-        last_error: Optional[Exception] = None
-
-        for candidate in candidates:
-            try:
-                parsed, _ = decoder.raw_decode(candidate)
-                return parsed
-            except Exception as exc:
-                last_error = exc
-            try:
-                return self._parse_python_literal_response(candidate)
-            except Exception as exc:
-                last_error = exc
-
-        raise last_error or ValueError("Unable to parse JSON response")
 
     def _fallback_extract_fields(self, full_text: str) -> Dict[str, Any]:
         """Creates a usable extraction from OCR rows when the LLM fails."""
@@ -413,78 +219,17 @@ class LLMAgent:
 
     def infer(self, full_ocr_json: Dict[str, Any], callback: Optional[Callable] = None) -> Dict[str, Any]:
         start_time = time.time()
-        logger.info(f"\n[LLM] Reasoning engine activated (Qwen-3)")
-        
-        full_text = self._extract_full_text(full_ocr_json)
-
-        logger.info(f"[LLM] Context size: {len(full_text)} characters")
-        
-        system_instruction = (
-            "You are a document field allocation engine. "
-            "Read the OCR text in order and map each visible label/value pair to the correct semantic key. "
-            "Return ONLY valid JSON. Do not include markdown, comments, explanations, or thinking text. "
-            "The response must start with { and end with }. "
-            "Return exactly this top-level shape: { \"extracted_fields\": { ... } }. "
-            "Inside extracted_fields, use clear snake_case keys such as company_name, address, gst_id, "
-            "invoice_number, invoice_date, time_stamp, items, total_amount, total_rounded, "
-            "cash_tendered, change, total_includes_gst, feedback_link, feedback_method, "
-            "customer_service_hotline. "
-            "For repeated purchased products, create an items array with objects containing quantity, "
-            "item_name, and price when available. "
-            "Preserve the document's actual values; do not invent values. "
-            "If a field is not present, omit it. "
-            "Do not put processing metrics, completion costs, budgets, confidence values, or metadata "
-            "inside extracted_fields."
-        )
-        user_prompt = (
-            "Allocate the OCR text below into the correct extracted_fields keys. "
-            "Use the visual order and nearby labels to decide which value belongs to which key. "
-            "Return JSON only.\n\n"
-            f"OCR TEXT:\n{full_text}"
-        )
-
-        messages = [{"role": "system", "content": system_instruction}, {"role": "user", "content": user_prompt}]
-        try:
-            text = self.tokenizer.apply_chat_template(
-                messages,
-                tokenize=False,
-                add_generation_prompt=True,
-                enable_thinking=False,
-            )
-        except TypeError:
-            text = self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        model_inputs = self.tokenizer([text], return_tensors="pt").to("cpu")
-        
-        logger.info(f"[LLM] Generating tokens (streaming)...")
-        streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True, skip_special_tokens=True)
-        generate_kwargs = dict(
-            **model_inputs,
-            streamer=streamer,
-            max_new_tokens=384,
-            do_sample=False,
-            repetition_penalty=1.05,
-            eos_token_id=self.tokenizer.eos_token_id,
-            pad_token_id=self.tokenizer.eos_token_id,
-        )
-        
-        thread = Thread(target=self.model.generate, kwargs=generate_kwargs)
-        thread.start()
-
-        response_text = ""
-        for new_text in streamer:
-            response_text += new_text
-        thread.join()
-        
-        logger.info(f"[LLM] Generation complete in {time.time()-start_time:.2f}s")
+        logger.info(f"\n[LLM] Calling remote reasoning engine...")
         
         try:
-            extracted_json = self._parse_json_response(response_text)
-            logger.info("[LLM] Successfully parsed JSON object")
-            return self.normalize_extraction(extracted_json)
+            response = requests.post(self.service_url, json={"ocr_json": full_ocr_json}, timeout=120)
+            response.raise_for_status()
+            logger.info(f"[LLM] Inference complete in {time.time()-start_time:.2f}s")
+            return response.json()
         except Exception as e:
-            logger.error(f"[LLM] JSON parsing failed: {e}")
+            logger.error(f"[LLM] Remote inference failed: {e}")
             logger.warning("[LLM] Falling back to deterministic OCR field extraction")
-            logger.debug(f"[LLM] Raw Snippet: {response_text[:500]}")
+            full_text = self._extract_full_text(full_ocr_json)
             return self._fallback_extract_fields(full_text)
 
     def normalize_extraction(self, extraction: Dict[str, Any]) -> Dict[str, Any]:

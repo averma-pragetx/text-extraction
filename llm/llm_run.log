@@ -1,0 +1,29 @@
+C:\Projects\text_extraction\llm\main.py:260: DeprecationWarning: 
+        on_event is deprecated, use lifespan event handlers instead.
+
+        Read more about it in the
+        [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+        
+  @app.on_event("startup")
+INFO:     Started server process [22544]
+INFO:     Waiting for application startup.
+Loading model: Qwen/Qwen3-1.7B (CPU Mode)...
+HTTP Request: HEAD https://huggingface.co/Qwen/Qwen3-1.7B/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Qwen/Qwen3-1.7B/70d244cc86ccca08cf5af4e1e306ecf908b1ad5e/config.json "HTTP/1.1 200 OK"
+HTTP Request: HEAD https://huggingface.co/Qwen/Qwen3-1.7B/resolve/main/tokenizer_config.json "HTTP/1.1 307 Temporary Redirect"
+HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Qwen/Qwen3-1.7B/70d244cc86ccca08cf5af4e1e306ecf908b1ad5e/tokenizer_config.json "HTTP/1.1 200 OK"
+HTTP Request: GET https://huggingface.co/api/models/Qwen/Qwen3-1.7B/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+HTTP Request: GET https://huggingface.co/api/models/Qwen/Qwen3-1.7B/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+HTTP Request: GET https://huggingface.co/api/models/Qwen/Qwen3-1.7B "HTTP/1.1 200 OK"
+HTTP Request: HEAD https://huggingface.co/Qwen/Qwen3-1.7B/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Qwen/Qwen3-1.7B/70d244cc86ccca08cf5af4e1e306ecf908b1ad5e/config.json "HTTP/1.1 200 OK"
+[transformers] `torch_dtype` is deprecated! Use `dtype` instead!
+Loading weights:   0%|          | 0/311 [00:00<?, ?it/s]Loading weights:   0%|          | 1/311 [00:02<12:30,  2.42s/it]Loading weights:   1%|          | 2/311 [00:03<08:00,  1.55s/it]Loading weights:  23%|██▎       | 72/311 [00:03<00:06, 36.48it/s]Loading weights:  33%|███▎      | 104/311 [00:03<00:04, 49.18it/s]Loading weights:  41%|████      | 128/311 [00:04<00:03, 51.53it/s]Loading weights:  47%|████▋     | 145/311 [00:04<00:02, 56.52it/s]Loading weights:  51%|█████▏    | 160/311 [00:04<00:02, 51.61it/s]Loading weights:  55%|█████▍    | 171/311 [00:05<00:02, 48.74it/s]Loading weights:  58%|█████▊    | 180/311 [00:05<00:02, 45.36it/s]Loading weights:  61%|██████▏   | 191/311 [00:05<00:02, 45.10it/s]Loading weights:  64%|██████▍   | 199/311 [00:05<00:02, 48.67it/s]Loading weights:  66%|██████▌   | 206/311 [00:05<00:02, 50.19it/s]Loading weights:  68%|██████▊   | 213/311 [00:05<00:01, 51.43it/s]Loading weights:  71%|███████   | 220/311 [00:06<00:02, 42.84it/s]Loading weights:  75%|███████▍  | 232/311 [00:06<00:01, 53.90it/s]Loading weights:  77%|███████▋  | 239/311 [00:06<00:01, 55.63it/s]Loading weights:  79%|███████▉  | 246/311 [00:06<00:01, 46.03it/s]Loading weights:  83%|████████▎ | 257/311 [00:06<00:01, 42.25it/s]Loading weights:  84%|████████▍ | 262/311 [00:07<00:01, 38.97it/s]Loading weights:  86%|████████▌ | 268/311 [00:07<00:01, 34.82it/s]Loading weights:  87%|████████▋ | 272/311 [00:07<00:01, 21.92it/s]Loading weights:  90%|█████████ | 281/311 [00:07<00:01, 29.68it/s]Loading weights:  96%|█████████▌| 298/311 [00:08<00:00, 49.83it/s]Loading weights:  98%|█████████▊| 306/311 [00:08<00:00, 48.02it/s]Loading weights: 100%|██████████| 311/311 [00:08<00:00, 37.35it/s]
+HTTP Request: HEAD https://huggingface.co/Qwen/Qwen3-1.7B/resolve/main/generation_config.json "HTTP/1.1 307 Temporary Redirect"
+HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/Qwen/Qwen3-1.7B/70d244cc86ccca08cf5af4e1e306ecf908b1ad5e/generation_config.json "HTTP/1.1 200 OK"
+HTTP Request: HEAD https://huggingface.co/Qwen/Qwen3-1.7B/resolve/main/custom_generate/generate.py "HTTP/1.1 404 Not Found"
+Model loaded successfully.
+INFO:     Application startup complete.
+ERROR:    [Errno 10048] error while attempting to bind on address ('0.0.0.0', 5000): only one usage of each socket address (protocol/network address/port) is normally permitted
+INFO:     Waiting for application shutdown.
+INFO:     Application shutdown complete.

@@ -24,6 +24,8 @@ export function getGlobalStyles(c) {
 .gbtn:disabled{cursor:not-allowed;opacity:.58;transform:none;box-shadow:none}
 .gbtn.ghost{background:${c.glass};color:${c.text};box-shadow:0 0 0 1px ${c.glassBorder} inset;backdrop-filter:blur(12px)}
 .gbtn.ghost:hover{background:${c.glassHover};box-shadow:0 0 0 1px ${c.cyan}66 inset}
+.gbtn.danger{background:linear-gradient(135deg,${c.red},${c.magenta});box-shadow:0 6px 24px -8px ${c.red}${glow ? "aa" : "66"}}
+.gbtn.danger:hover{transform:translateY(-2px) scale(1.02);box-shadow:0 12px 38px -10px ${c.red}${glow ? "cc" : "88"}}
 .glass{background:${c.glass};border:1px solid ${c.glassBorder};border-radius:20px;position:relative;overflow:hidden;
   ${c.dark ? "backdrop-filter:blur(16px);" : "box-shadow:0 8px 28px -18px rgba(15,20,40,0.25);"}}
 ${c.dark ? `.glass::before{content:'';position:absolute;inset:0;border-radius:20px;padding:1px;

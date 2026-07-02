@@ -8,8 +8,8 @@ export function Header() {
   const location = useLocation();
 
   // Find current title based on path
-  const currentNav = NAV.find(n => n.path === location.pathname) || NAV[0];
-  const title = TITLES[currentNav.id];
+  const currentNav = NAV.find(n => n.path === location.pathname);
+  const title = currentNav ? TITLES[currentNav.id] : "Home";
 
   return (
     <header style={{ height: 68, display: "flex", alignItems: "center", padding: "0 30px", borderBottom: `1px solid ${c.glassBorder}`, backdropFilter: "blur(10px)", position: "sticky", top: 0, zIndex: 5, background: c.bg + "cc" }}>

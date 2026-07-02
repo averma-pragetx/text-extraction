@@ -81,15 +81,6 @@ export function Sidebar() {
           {isC ? <ChevronRight size={16} /> : <div style={{ display: "flex", alignItems: "center", gap: 8 }}><ChevronLeft size={16} /> <span style={{ fontSize: 12 }}>Collapse</span></div>}
         </button>
 
-        <div className="glass" style={{ padding: isC ? "8px" : "11px 12px", display: "flex", alignItems: "center", justifyContent: isC ? "center" : "flex-start", gap: 10 }}>
-          <div className="disp" style={{ width: 30, height: 30, borderRadius: 9, display: "flex", alignItems: "center", justifyContent: "center", background: `linear-gradient(135deg,${c.magenta},${c.amber})`, fontSize: 11, fontWeight: 700, color: "#fff", flexShrink: 0 }}>PX</div>
-          {!isC && (
-            <div className="rise">
-              <div style={{ fontSize: 12, fontWeight: 600 }}>PragetX</div>
-              <div className="mono" style={{ fontSize: 9.5, color: c.dim }}>standard plan</div>
-            </div>
-          )}
-        </div>
       </div>
     </aside>
   );

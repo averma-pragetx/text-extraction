@@ -190,43 +190,116 @@ def update_extraction_remarks(record_id: str, remarks: List[str]) -> bool:
         logger.error(f"Error updating extraction remarks {record_id}: {e}")
         return False
 
-def get_dashboard_stats() -> Dict[str, Any]:
-    """Calculates high-level metrics for the dashboard."""
+def update_review_decision(record_id: str, status: str, extra_remarks: Optional[List[str]] = None) -> bool:
+    """Records an approve/reject decision on a document and, if provided, appends new remarks
+    (e.g. the reviewer's reason for rejecting) onto the existing remarks array."""
+    if status not in ["Saved", "Approved", "Rejected"]:
+        logger.error(f"Invalid status value: {status}")
+        return False
+
     collection = get_extractions_collection()
     try:
-        total_docs = collection.count_documents({})
-        pending_approvals = collection.count_documents({"status": "Saved"})
-        approved_docs = collection.count_documents({"status": "Approved"})
-        
-        # Calculate total value from approved invoices
+        query = {"_id": ObjectId(record_id)} if len(record_id) == 24 else {"_id": record_id}
+        update: Dict[str, Any] = {"$set": {"status": status}}
+
+        clean_remarks = [r.strip() for r in (extra_remarks or []) if r and r.strip()]
+        if clean_remarks:
+            update["$addToSet"] = {"remarks": {"$each": clean_remarks}}
+
+        result = collection.update_one(query, update)
+        if result.matched_count == 0:
+            logger.warning(f"No extraction record found for review decision: {record_id}")
+            return False
+
+        logger.info(f"Review decision recorded for {record_id}: status={status}, added_remarks={clean_remarks}")
+        return True
+    except Exception as e:
+        logger.error(f"Error recording review decision for {record_id}: {e}")
+        return False
+
+VENDOR_FIELD = "extraction.extracted_fields.company_name"
+AMOUNT_FIELD = "extraction.extracted_fields.total_amount"
+
+def build_dashboard_filter(
+    status: Optional[str] = None,
+    vendor: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Builds a MongoDB query filter for the extractions collection from dashboard query params."""
+    query: Dict[str, Any] = {}
+
+    if status:
+        query["status"] = status
+
+    if vendor:
+        query[VENDOR_FIELD] = vendor
+
+    created_at: Dict[str, datetime] = {}
+    if date_from:
+        try:
+            created_at["$gte"] = datetime.strptime(date_from, "%Y-%m-%d")
+        except ValueError:
+            logger.warning(f"Ignoring invalid date_from value: {date_from}")
+    if date_to:
+        try:
+            created_at["$lte"] = datetime.strptime(date_to, "%Y-%m-%d").replace(hour=23, minute=59, second=59)
+        except ValueError:
+            logger.warning(f"Ignoring invalid date_to value: {date_to}")
+    if created_at:
+        query["created_at"] = created_at
+
+    return query
+
+def get_dashboard_stats(filters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Calculates high-level metrics for the dashboard, optionally scoped by filters."""
+    collection = get_extractions_collection()
+    base_filter = filters or {}
+    try:
+        total_docs = collection.count_documents(base_filter)
+        pending_approvals = collection.count_documents({**base_filter, "status": "Saved"})
+        approved_docs = collection.count_documents({**base_filter, "status": "Approved"})
+        rejected_docs = collection.count_documents({**base_filter, "status": "Rejected"})
+
+        # Calculate total value across matching invoices
         pipeline = [
-            {"$match": {"status": "Approved"}},
+            {"$match": base_filter},
             {"$group": {
                 "_id": None,
-                "total_value": {"$sum": "$extraction.extracted_fields.total_amount"}
+                "total_value": {"$sum": f"${AMOUNT_FIELD}"}
             }}
         ]
         val_result = list(collection.aggregate(pipeline))
         total_value = val_result[0]["total_value"] if val_result else 0
-        
+
         return {
             "total_documents": total_docs,
             "pending_approvals": pending_approvals,
             "approved_documents": approved_docs,
-            "total_value_cr": round(total_value / 10000000, 2)  # Convert to Crores
+            "rejected_documents": rejected_docs,
+            "total_value": round(total_value or 0, 2),
+            "total_value_cr": round((total_value or 0) / 10000000, 2)  # Convert to Crores
         }
     except Exception as e:
         logger.error(f"Error fetching dashboard stats: {e}")
-        return {"total_documents": 0, "pending_approvals": 0, "approved_documents": 0, "total_value_cr": 0}
+        return {
+            "total_documents": 0,
+            "pending_approvals": 0,
+            "approved_documents": 0,
+            "rejected_documents": 0,
+            "total_value": 0,
+            "total_value_cr": 0,
+        }
 
-def get_monthly_invoice_volume() -> List[Dict[str, Any]]:
-    """Aggregates invoice volume by month for the chart."""
+def get_monthly_invoice_volume(filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """Aggregates invoice volume by month for the chart, optionally scoped by filters."""
     collection = get_extractions_collection()
     try:
         pipeline = [
+            {"$match": filters or {}},
             {
                 "$group": {
-                    "_id": {"$dateToString": {"format": "%b", "date": "$created_at"}},
+                    "_id": {"$dateToString": {"format": "%b %Y", "date": "$created_at"}},
                     "v": {"$sum": 1},
                     "sort_key": {"$min": "$created_at"}
                 }
@@ -239,19 +312,66 @@ def get_monthly_invoice_volume() -> List[Dict[str, Any]]:
         logger.error(f"Error fetching monthly volume: {e}")
         return []
 
-def get_latest_updates(limit: int = 5) -> List[Dict[str, Any]]:
-    """Fetches the latest extraction activity for the feed."""
+def get_status_breakdown(filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """Aggregates document counts grouped by status, optionally scoped by filters."""
     collection = get_extractions_collection()
     try:
-        records = collection.find().sort("created_at", -1).limit(limit)
+        pipeline = [
+            {"$match": filters or {}},
+            {"$group": {"_id": "$status", "count": {"$sum": 1}}},
+            {"$project": {"_id": 0, "status": "$_id", "count": 1}},
+        ]
+        return list(collection.aggregate(pipeline))
+    except Exception as e:
+        logger.error(f"Error fetching status breakdown: {e}")
+        return []
+
+def get_top_vendors(filters: Optional[Dict[str, Any]] = None, limit: int = 6) -> List[Dict[str, Any]]:
+    """Aggregates total invoice value and count grouped by vendor, optionally scoped by filters."""
+    collection = get_extractions_collection()
+    try:
+        pipeline = [
+            {"$match": filters or {}},
+            {"$match": {VENDOR_FIELD: {"$nin": [None, ""]}}},
+            {"$group": {
+                "_id": f"${VENDOR_FIELD}",
+                "value": {"$sum": f"${AMOUNT_FIELD}"},
+                "count": {"$sum": 1},
+            }},
+            {"$sort": {"value": -1}},
+            {"$limit": limit},
+            {"$project": {"_id": 0, "vendor": "$_id", "value": 1, "count": 1}},
+        ]
+        return list(collection.aggregate(pipeline))
+    except Exception as e:
+        logger.error(f"Error fetching top vendors: {e}")
+        return []
+
+def get_dashboard_filter_options() -> Dict[str, List[str]]:
+    """Returns the distinct vendor names and statuses available for dashboard filtering."""
+    collection = get_extractions_collection()
+    try:
+        vendors = [v for v in collection.distinct(VENDOR_FIELD) if v]
+        statuses = [s for s in collection.distinct("status") if s]
+        return {"vendors": sorted(vendors), "statuses": sorted(statuses)}
+    except Exception as e:
+        logger.error(f"Error fetching dashboard filter options: {e}")
+        return {"vendors": [], "statuses": []}
+
+def get_latest_updates(limit: int = 5, filters: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """Fetches the latest extraction activity for the feed, optionally scoped by filters."""
+    collection = get_extractions_collection()
+    try:
+        records = collection.find(filters or {}).sort("created_at", -1).limit(limit)
         updates = []
         for r in records:
+            fields = r.get("extraction", {}).get("extracted_fields", {}) or {}
             updates.append({
                 "id": str(r["_id"]),
                 "filename": r["filename"],
                 "status": r.get("status", "Saved"),
-                "vendor": r.get("extraction", {}).get("extracted_fields", {}).get("company_name", "Unknown"),
-                "amount": r.get("extraction", {}).get("extracted_fields", {}).get("total_amount", 0),
+                "vendor": fields.get("company_name") or "Unknown",
+                "amount": fields.get("total_amount", 0),
                 "timestamp": r["created_at"].isoformat()
             })
         return updates
@@ -260,18 +380,19 @@ def get_latest_updates(limit: int = 5) -> List[Dict[str, Any]]:
         return []
 
 def get_review_queue() -> List[Dict[str, Any]]:
-    """Fetches documents that require manual review (low confidence or flagged)."""
+    """Fetches all documents for the review workspace, most recent first.
+    Every document is included regardless of its decision so that approved and
+    rejected documents remain visible on the review page permanently, alongside
+    the ones still awaiting a decision."""
     collection = get_extractions_collection()
     try:
-        # For now, we'll consider all 'Saved' status documents as needing review
-        # In a real scenario, we might filter by a 'confidence' field if available
-        records = collection.find({"status": "Saved"}).sort("created_at", -1)
+        records = collection.find({}).sort("created_at", -1)
         queue = []
         for r in records:
             # Calculate a mock confidence for the UI if not present
             # In production, this should come from the LLM/Extraction metadata
             confidence = r.get("extraction", {}).get("metadata", {}).get("confidence", 75)
-            
+
             queue.append({
                 "id": str(r["_id"]),
                 "filename": r["filename"],
@@ -279,6 +400,7 @@ def get_review_queue() -> List[Dict[str, Any]]:
                 "processed_at": r.get("created_at").isoformat(),
                 "confidence": confidence,
                 "type": r.get("type", "Invoice"),
+                "status": r.get("status", "Saved"),
                 "extraction": r.get("extraction", {}),
                 "remarks": r.get("remarks", []),
                 "s3": r.get("s3")

@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { 
   Upload, ScanLine, Brain, Database, CircleCheck, Check, Pencil, X, Eye, 
   RotateCcw, Table as TableIcon, LayoutGrid, FileText, Code, Building2, 
@@ -7,7 +7,6 @@ import {
 } from "lucide-react";
 import { useC } from "../context/ThemeContext";
 import { Chip } from "../components/common/Chip";
-import { GlowDot } from "../components/common/GlowDot";
 import { API_BASE } from "../utils/api";
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024;
@@ -669,7 +668,7 @@ export function Documents() {
                 <td className="mono" style={{ padding: "14px 10px", color: c.muted }}>{r.processed_at || r.created_at || "—"}</td>
                 <td style={{ padding: "14px 10px" }}>
                   <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: r.status === "Approved" ? c.cyan : r.status === "Rejected" ? c.red : c.lime, fontSize: 11.5 }}>
-                    <GlowDot color={r.status === "Approved" ? c.cyan : r.status === "Rejected" ? c.red : c.lime} />{r.status}
+                    {r.status}
                   </span>
                 </td>
                 <td style={{ padding: "14px 10px" }}>
